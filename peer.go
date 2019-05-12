@@ -14,7 +14,8 @@ import (
 type Peer struct {
 	PublicKey ed25519.PublicKey
 	Node      *Node
-	io.WriteCloser
+	*gob.Encoder
+	io.Closer
 }
 
 func NewPeer(addr string, n *Node) (*Peer, error) {
@@ -67,10 +68,10 @@ func NewPeerConn(conn net.Conn, n *Node) (p *Peer, err error) {
 	}
 
 	// verify
-	if !ed25519.Verify(ed25519.PublicKey(k[:]), a[:], b[:]) {
+	if !ed25519.Verify(k[:], a[:], b[:]) {
 		return nil, errors.New("invalid signature")
 	}
-	p = &Peer{ed25519.PublicKey(k[:]), n, conn}
+	p = &Peer{ed25519.PublicKey(k[:]), n, gob.NewEncoder(conn), conn}
 	go p.listen(conn)
 	return p, nil
 }
