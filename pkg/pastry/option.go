@@ -16,3 +16,9 @@ func Forward(f Forwarder) Option {
 		n.forwarder = f
 	}
 }
+
+func Handle(h Handler) Option {
+	return func(n *Node) {
+		n.handler = h
+	}
+}

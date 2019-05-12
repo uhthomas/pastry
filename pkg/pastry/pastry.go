@@ -16,10 +16,11 @@ type Node struct {
 	privateKey ed25519.PrivateKey
 	publicKey  ed25519.PublicKey
 	forwarder  Forwarder
+	handler    Handler
 	c          chan Message
 }
 
-func NewNode(opts ...Option) (*Node, error) {
+func New(opts ...Option) (*Node, error) {
 	n := new(Node)
 	for _, opt := range opts {
 		opt(n)
@@ -31,26 +32,30 @@ func NewNode(opts ...Option) (*Node, error) {
 		}
 		Key(k)(n)
 	}
-	l, err := net.Listen("tcp", ":9001")
-	if err != nil {
-		return nil, err
-	}
-	go n.serve(l)
 	return n, nil
 }
 
-func (n *Node) Accept(l net.Listener) error {
+func (n *Node) ListenAndServe(ctx context.Context, network, address string) error {
+	l, err := net.Listen(network, address)
+	if err != nil {
+		return err
+	}
+	return n.Serve(ctx, l)
+}
+
+func (n *Node) Serve(ctx context.Context, l net.Listener) error {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
 			return err
 		}
-		go n.Serve(conn)
+		go n.Accept(conn)
 	}
 }
 
-func (n *Node) Serve(conn net.Conn) error {
+func (n *Node) Accept(conn net.Conn) error {
 	defer conn.Close()
+
 	// send our public key
 	// read their public key
 	if _, err := conn.Write(n.publicKey); err != nil {
@@ -116,7 +121,7 @@ func (n *Node) Route(key, b []byte) {
 		return
 	}
 	if n.forwarder != nil {
-		n.forwarder(key, b, p.PublicKey)
+		n.forwarder.Forward(key, b, p.PublicKey)
 	}
 	n.send(p.Encoder, Message{key, b})
 }
