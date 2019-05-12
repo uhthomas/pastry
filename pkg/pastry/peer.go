@@ -35,7 +35,7 @@ func NewPeerConn(conn net.Conn, n *Node) (p *Peer, err error) {
 
 	// send our public key
 	// read their public key
-	if _, err := conn.Write(n.PublicKey); err != nil {
+	if _, err := conn.Write(n.publicKey); err != nil {
 		return nil, err
 	}
 	var k [ed25519.PublicKeySize]byte
@@ -60,7 +60,7 @@ func NewPeerConn(conn net.Conn, n *Node) (p *Peer, err error) {
 
 	// send our signature
 	// read their signature
-	if _, err := conn.Write(ed25519.Sign(n.PrivateKey, b[:])); err != nil {
+	if _, err := conn.Write(ed25519.Sign(n.privateKey, b[:])); err != nil {
 		return nil, err
 	}
 	if _, err := io.ReadFull(conn, b[:]); err != nil {

@@ -1,11 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
 
-	pastry2 "github.com/uhthomas/pastry/pkg/pastry"
+	"github.com/uhthomas/pastry/pkg/pastry"
 )
 
 func main() {
@@ -13,15 +14,18 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	n, err := pastry2.NewNode(nil)
+	n, err := pastry.NewNode(
+		pastry.Forward(pastry.ForwarderFunc(func(key, b, next []byte) {
+
+		})),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
-	// if you want to edit messages before they're forwarded
-	n.Forward = func(key, b, next []byte) {}
 	go n.Accept(l)
 	for {
-		m, err := n.Next()
+		ctx := context.Background()
+		m, err := n.Next(ctx)
 		if err != nil {
 			log.Fatal(err)
 		}

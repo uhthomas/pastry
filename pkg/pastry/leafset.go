@@ -17,7 +17,7 @@ type Leafset struct {
 func newLeafset(n *Node) Leafset { return Leafset{parent: n} }
 
 func (l *Leafset) Closest(k []byte) *Peer {
-	if c := bytes.Compare(k, l.parent.PublicKey); c < 0 {
+	if c := bytes.Compare(k, l.parent.publicKey); c < 0 {
 		return l.closest(k, l.left)
 	} else if c > 0 {
 		return l.closest(k, l.right)
@@ -32,7 +32,7 @@ func (l *Leafset) closest(k []byte, s []*Peer) *Peer {
 }
 
 func (l *Leafset) Insert(p *Peer) bool {
-	if c := bytes.Compare(p.PublicKey, l.parent.PublicKey); c < 0 {
+	if c := bytes.Compare(p.PublicKey, l.parent.publicKey); c < 0 {
 		return l.insert(p, l.left)
 	} else if c > 0 {
 		return l.insert(p, l.right)
@@ -62,7 +62,7 @@ func (l *Leafset) insert(p *Peer, s []*Peer) bool {
 }
 
 func (l *Leafset) Remove(p *Peer) bool {
-	if c := bytes.Compare(p.PublicKey, l.parent.PublicKey); c < 0 {
+	if c := bytes.Compare(p.PublicKey, l.parent.publicKey); c < 0 {
 		return l.remove(p, l.left)
 	} else if c > 0 {
 		return l.remove(p, l.right)

@@ -1,6 +1,7 @@
 package pastry
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/gob"
 	"errors"
@@ -11,32 +12,36 @@ import (
 )
 
 type Node struct {
-	PrivateKey ed25519.PrivateKey
-	PublicKey  ed25519.PublicKey
 	Leafset    Leafset
-	Forward    func(key, b, next []byte)
+	privateKey ed25519.PrivateKey
+	publicKey  ed25519.PublicKey
+	forwarder  Forwarder
 	c          chan Message
 }
 
-func NewNode(k ed25519.PrivateKey) (n *Node, err error) {
-	if k == nil {
-		_, k, err = ed25519.GenerateKey(nil)
+func NewNode(opts ...Option) (*Node, error) {
+	n := new(Node)
+	for _, opt := range opts {
+		opt(n)
+	}
+	if n.privateKey == nil {
+		_, k, err := ed25519.GenerateKey(nil)
 		if err != nil {
 			return nil, err
 		}
+		Key(k)(n)
 	}
 	l, err := net.Listen("tcp", ":9001")
 	if err != nil {
 		return nil, err
 	}
-	n = &Node{PrivateKey: k, PublicKey: k.Public().(ed25519.PublicKey)}
 	go n.serve(l)
 	return n, nil
 }
 
 func (n *Node) Accept(l net.Listener) error {
 	for {
-		conn, err := l.Accpet()
+		conn, err := l.Accept()
 		if err != nil {
 			return err
 		}
@@ -48,7 +53,7 @@ func (n *Node) Serve(conn net.Conn) error {
 	defer conn.Close()
 	// send our public key
 	// read their public key
-	if _, err := conn.Write(n.PublicKey); err != nil {
+	if _, err := conn.Write(n.publicKey); err != nil {
 		return err
 	}
 	var k [ed25519.PublicKeySize]byte
@@ -73,7 +78,7 @@ func (n *Node) Serve(conn net.Conn) error {
 
 	// send our signature
 	// read their signature
-	if _, err := conn.Write(ed25519.Sign(n.PrivateKey, b[:])); err != nil {
+	if _, err := conn.Write(ed25519.Sign(n.privateKey, b[:])); err != nil {
 		return err
 	}
 	if _, err := io.ReadFull(conn, b[:]); err != nil {
@@ -110,8 +115,8 @@ func (n *Node) Route(key, b []byte) {
 		go func() { n.c <- Message{key, b} }()
 		return
 	}
-	if n.Forward != nil {
-		n.Forward(key, b, p.PublicKey)
+	if n.forwarder != nil {
+		n.forwarder(key, b, p.PublicKey)
 	}
 	n.send(p.Encoder, Message{key, b})
 }
@@ -133,12 +138,17 @@ func (n *Node) send(e *gob.Encoder, m Message) error {
 
 // }
 
-// func (n *Node) Forward(key, next, msg []byte) {
+// func (n *Node) forward(key, next, msg []byte) {
 // 	c := n.Leafset.Closest(next)
 // }
 
 // func (n *Node) NewLeafSet(leafset []byte) {}
 
-func (n *Node) Next() (Message, error) {
-	return <-n.c, nil
+func (n *Node) Next(ctx context.Context) (Message, error) {
+	select {
+	case m := <-n.c:
+		return m, nil
+	case <-ctx.Done():
+		return Message{}, ctx.Err()
+	}
 }
