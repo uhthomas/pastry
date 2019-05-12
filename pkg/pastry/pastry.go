@@ -23,9 +23,7 @@ type Node struct {
 
 func New(opts ...Option) (*Node, error) {
 	n := new(Node)
-	for _, opt := range opts {
-		opt(n)
-	}
+	n.Apply(opts...)
 	if n.privateKey == nil {
 		_, k, err := ed25519.GenerateKey(nil)
 		if err != nil {
@@ -34,6 +32,12 @@ func New(opts ...Option) (*Node, error) {
 		Key(k)(n)
 	}
 	return n, nil
+}
+
+func (n *Node) Apply(opts ...Option) {
+	for _, opt := range opts {
+		opt(n)
+	}
 }
 
 func (n *Node) ListenAndServe(ctx context.Context, network, address string) error {
