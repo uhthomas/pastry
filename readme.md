@@ -10,6 +10,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -54,10 +55,11 @@ func main() {
 		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
 		select {
-		case <-c:
+		case sig := <-c:
+			return fmt.Errorf("received signal: %s", sig)
 		case <-ctx.Done():
+			return ctx.Err()
 		}
-		return ctx.Err()
 	})
 
 	if err := g.Wait(); err != nil {
