@@ -61,6 +61,9 @@ func (n *Node) Serve(ctx context.Context, l net.Listener) error {
 	})
 	g.Go(func() error {
 		<-ctx.Done()
+		if err := l.Close(); err != nil {
+			return err
+		}
 		return ctx.Err()
 	})
 	return g.Wait()
