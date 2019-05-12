@@ -9,6 +9,7 @@ import (
 	"net"
 
 	"golang.org/x/crypto/ed25519"
+	"golang.org/x/sync/errgroup"
 )
 
 type Node struct {
@@ -44,13 +45,21 @@ func (n *Node) ListenAndServe(ctx context.Context, network, address string) erro
 }
 
 func (n *Node) Serve(ctx context.Context, l net.Listener) error {
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			return err
+	g, ctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return err
+			}
+			go n.Accept(conn)
 		}
-		go n.Accept(conn)
-	}
+	})
+	g.Go(func() error {
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	return g.Wait()
 }
 
 func (n *Node) Accept(conn net.Conn) error {
