@@ -5,7 +5,7 @@ import (
 	"log"
 	"net"
 
-	"github.com/uhthomas/pastry"
+	pastry2 "github.com/uhthomas/pastry/pkg/pastry"
 )
 
 func main() {
@@ -13,7 +13,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	n, err := pastry.NewNode(nil)
+	n, err := pastry2.NewNode(nil)
 	if err != nil {
 		log.Fatal(err)
 	}
