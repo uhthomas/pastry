@@ -164,18 +164,7 @@ func (n *Node) Route(key, b []byte) {
 	if n.forwarder != nil {
 		n.forwarder.Forward(key, b, p.PublicKey)
 	}
-	n.send(p.Encoder, Message{key, b})
-}
-
-// Send data directly to a node, bypassing routing.
-func (n *Node) Send(to net.Addr, m Message) error {
-
-	return nil
-}
-
-func (n *Node) send(e *gob.Encoder, m Message) error {
-
-	return nil
+	// n.send(p.Encoder, Message{key, b})
 }
 
 func (n *Node) Close() error {
