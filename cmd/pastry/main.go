@@ -26,7 +26,7 @@ func main() {
 			// message <key> with <b> is being forwarded to <next>
 		})),
 		// Handle received messages
-		pastry.Handle(pastry.HandlerFunc(func(key, b []byte) {
+		pastry.Deliver(pastry.DelivererFunc(func(key, b []byte) {
 
 		})),
 	)
@@ -38,9 +38,7 @@ func main() {
 
 	g, ctx := errgroup.WithContext(ctx)
 
-	g.Go(func() error {
-		return n.ListenAndServe(ctx, "tcp", "localhost")
-	})
+	g.Go(func() error { return n.ListenAndServe(ctx, "tcp", "localhost") })
 
 	g.Go(func() error {
 		c := make(chan os.Signal, 1)

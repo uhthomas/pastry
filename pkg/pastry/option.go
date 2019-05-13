@@ -17,8 +17,8 @@ func Forward(f Forwarder) Option {
 	}
 }
 
-func Handle(h Handler) Option {
+func Deliver(d Deliverer) Option {
 	return func(n *Node) {
-		n.handler = h
+		n.deliverer = d
 	}
 }

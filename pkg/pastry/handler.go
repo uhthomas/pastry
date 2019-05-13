@@ -1,9 +1,9 @@
 package pastry
 
-type Handler interface {
-	Handle(key, b []byte)
+type Deliverer interface {
+	Deliver(key, b []byte)
 }
 
-type HandlerFunc func(key, b []byte)
+type DelivererFunc func(key, b []byte)
 
-func (f HandlerFunc) Handle(key, b []byte) { f(key, b) }
+func (f DelivererFunc) Deliver(key, b []byte) { f(key, b) }

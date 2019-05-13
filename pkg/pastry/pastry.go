@@ -17,7 +17,7 @@ type Node struct {
 	privateKey ed25519.PrivateKey
 	publicKey  ed25519.PublicKey
 	forwarder  Forwarder
-	handler    Handler
+	deliverer  Deliverer
 	c          chan Message
 }
 
