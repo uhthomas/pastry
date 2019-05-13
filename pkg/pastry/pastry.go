@@ -45,20 +45,8 @@ func (n *Node) ListenAndServe(ctx context.Context, network, address string) erro
 	if err != nil {
 		return err
 	}
-	return n.Serve(ctx, l)
-}
-
-func (n *Node) Serve(ctx context.Context, l net.Listener) error {
 	g, ctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		for {
-			conn, err := l.Accept()
-			if err != nil {
-				return err
-			}
-			go n.Accept(conn)
-		}
-	})
+	g.Go(func() error { return n.Serve(l) })
 	g.Go(func() error {
 		<-ctx.Done()
 		if err := l.Close(); err != nil {
@@ -67,6 +55,16 @@ func (n *Node) Serve(ctx context.Context, l net.Listener) error {
 		return ctx.Err()
 	})
 	return g.Wait()
+}
+
+func (n *Node) Serve(l net.Listener) error {
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			return err
+		}
+		go n.Accept(conn)
+	}
 }
 
 func (n *Node) Accept(conn net.Conn) error {

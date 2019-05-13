@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -35,7 +34,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+
 	g, ctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
@@ -47,8 +47,9 @@ func main() {
 		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
 		select {
-		case sig := <-c:
-			return fmt.Errorf("received signal: %s", sig)
+		case <-c:
+			cancel()
+			return nil
 		case <-ctx.Done():
 			return ctx.Err()
 		}
