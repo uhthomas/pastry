@@ -117,11 +117,13 @@ func (n *Node) Accept(conn net.Conn) error {
 		}
 		switch {
 		case m.Key == nil:
-			go func() { n.c <- m }()
+			if n.deliverer != nil {
+				go n.deliverer.Deliver(m.Key, m.Value)
+			}
 		case m.Value == nil:
 			e.Encode(m)
 		default:
-			n.Route(m)
+			n.Route(m.Key, m.Value)
 		}
 	}
 }
