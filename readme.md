@@ -10,7 +10,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -35,7 +34,7 @@ func main() {
 			// message <key> with <b> is being forwarded to <next>
 		})),
 		// Handle received messages
-		pastry.Handle(pastry.HandlerFunc(func(key, b []byte) {
+		pastry.Deliver(pastry.DelivererFunc(func(key, b []byte) {
 
 		})),
 	)
@@ -43,20 +42,20 @@ func main() {
 		log.Fatal(err)
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+
 	g, ctx := errgroup.WithContext(ctx)
 
-	g.Go(func() error {
-		return n.ListenAndServe(ctx, "tcp", "localhost")
-	})
+	g.Go(func() error { return n.ListenAndServe(ctx, "tcp", "localhost") })
 
 	g.Go(func() error {
 		c := make(chan os.Signal, 1)
 		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
 		select {
-		case sig := <-c:
-			return fmt.Errorf("received signal: %s", sig)
+		case <-c:
+			cancel()
+			return nil
 		case <-ctx.Done():
 			return ctx.Err()
 		}
