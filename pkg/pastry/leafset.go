@@ -14,7 +14,7 @@ type Leafset struct {
 	left, right []*Peer
 }
 
-func newLeafset(n *Node) Leafset { return Leafset{parent: n} }
+func NewLeafset(n *Node) Leafset { return Leafset{parent: n} }
 
 func (l *Leafset) Closest(k []byte) *Peer {
 	if c := bytes.Compare(k, l.parent.publicKey); c < 0 {

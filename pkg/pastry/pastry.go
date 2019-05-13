@@ -18,7 +18,6 @@ type Node struct {
 	publicKey  ed25519.PublicKey
 	forwarder  Forwarder
 	deliverer  Deliverer
-	c          chan Message
 }
 
 func New(opts ...Option) (*Node, error) {
@@ -131,7 +130,9 @@ func (n *Node) Accept(conn net.Conn) error {
 func (n *Node) Route(key, b []byte) {
 	p := n.Leafset.Closest(key)
 	if p == nil {
-		go func() { n.c <- Message{key, b} }()
+		if n.deliverer != nil {
+			n.deliverer.Deliver(key, b)
+		}
 		return
 	}
 	if n.forwarder != nil {
@@ -149,25 +150,4 @@ func (n *Node) Send(to net.Addr, m Message) error {
 func (n *Node) send(e *gob.Encoder, m Message) error {
 
 	return nil
-}
-
-// "Callbacks"
-// not thread safe
-// func (n *Node) Deliver(key, msg []byte) {
-
-// }
-
-// func (n *Node) forward(key, next, msg []byte) {
-// 	c := n.Leafset.Closest(next)
-// }
-
-// func (n *Node) NewLeafSet(leafset []byte) {}
-
-func (n *Node) Next(ctx context.Context) (Message, error) {
-	select {
-	case m := <-n.c:
-		return m, nil
-	case <-ctx.Done():
-		return Message{}, ctx.Err()
-	}
 }
