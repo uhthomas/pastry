@@ -71,6 +71,14 @@ func (n *Node) Serve(l net.Listener) error {
 	}
 }
 
+func (n *Node) DialAndAccept(network, address string) error {
+	conn, err := net.Dial(network, address)
+	if err != nil {
+		return err
+	}
+	return n.Accept(conn)
+}
+
 func (n *Node) Accept(conn net.Conn) error {
 	defer conn.Close()
 

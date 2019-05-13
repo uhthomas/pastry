@@ -11,9 +11,6 @@ package main
 import (
 	"context"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/uhthomas/pastry/pkg/pastry"
 	"golang.org/x/crypto/ed25519"
@@ -41,27 +38,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	g, ctx := errgroup.WithContext(ctx)
-
-	g.Go(func() error { return n.ListenAndServe(ctx, "tcp", "localhost") })
-
-	g.Go(func() error {
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-
-		select {
-		case <-c:
-			cancel()
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	})
-
-	if err := g.Wait(); err != nil {
+	
+	// Connect to another node -- bootstrap 
+	go n.DialAndAccept("tcp", "localhost:1234")
+	
+	// Listen for other nodes
+	if err := n.ListenAndServe(context.Background(), "tcp", "localhost"); err != nil {
 		log.Fatal(err)
 	}
 }
