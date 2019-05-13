@@ -16,6 +16,7 @@ type Leafset struct {
 
 func NewLeafset(n *Node) Leafset { return Leafset{parent: n} }
 
+// Closest will return the closest peer to the given key. If the key is equal to the parent then nil is returned.
 func (l *Leafset) Closest(k []byte) *Peer {
 	if c := bytes.Compare(k, l.parent.publicKey); c < 0 {
 		return l.closest(k, l.left)

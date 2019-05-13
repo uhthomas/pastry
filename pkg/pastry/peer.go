@@ -88,7 +88,9 @@ func (p *Peer) listen(conn net.Conn) {
 		switch {
 		case m.Key == nil:
 			// this is for us.
-			go func() { p.Node.c <- m }()
+			if d := p.Node.deliverer; d != nil {
+				go d.Deliver(m.Key, m.Data)
+			}
 		case m.Data == nil:
 			// bootstrap
 		default:

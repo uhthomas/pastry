@@ -3,9 +3,12 @@ package pastry
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/gob"
 	"errors"
+	"fmt"
 	"io"
+	"log"
 	"net"
 
 	"golang.org/x/crypto/ed25519"
@@ -18,10 +21,11 @@ type Node struct {
 	publicKey  ed25519.PublicKey
 	forwarder  Forwarder
 	deliverer  Deliverer
+	conns      map[net.Conn]struct{}
 }
 
 func New(opts ...Option) (*Node, error) {
-	n := new(Node)
+	n := &Node{conns: make(map[net.Conn]struct{})}
 	n.Apply(opts...)
 	if n.privateKey == nil {
 		_, k, err := ed25519.GenerateKey(nil)
@@ -62,6 +66,7 @@ func (n *Node) Serve(l net.Listener) error {
 		if err != nil {
 			return err
 		}
+		fmt.Println("Got conn! Accepting")
 		go n.Accept(conn)
 	}
 }
@@ -71,9 +76,11 @@ func (n *Node) Accept(conn net.Conn) error {
 
 	// send our public key
 	// read their public key
+	log.Println("writing public key")
 	if _, err := conn.Write(n.publicKey); err != nil {
 		return err
 	}
+	log.Println("receiving public key")
 	var k [ed25519.PublicKeySize]byte
 	if _, err := io.ReadFull(conn, k[:]); err != nil {
 		return err
@@ -83,32 +90,41 @@ func (n *Node) Accept(conn net.Conn) error {
 	// read their challenge
 	// a - our challenge
 	// b - their challenge - then our signature - then their signature
+	log.Println("generating challenge")
 	var a, b [ed25519.SignatureSize]byte
 	if _, err := io.ReadFull(rand.Reader, a[:]); err != nil {
 		return err
 	}
+	log.Println("writing challenge")
 	if _, err := conn.Write(a[:]); err != nil {
 		return err
 	}
+	log.Println("receiving challenge")
 	if _, err := io.ReadFull(conn, b[:]); err != nil {
 		return err
 	}
 
 	// send our signature
 	// read their signature
+	log.Println("sending our signature")
 	if _, err := conn.Write(ed25519.Sign(n.privateKey, b[:])); err != nil {
 		return err
 	}
+	log.Println("reading their signature")
 	if _, err := io.ReadFull(conn, b[:]); err != nil {
 		return err
 	}
 
 	// verify
+	log.Println("verifying signature")
 	if !ed25519.Verify(k[:], a[:], b[:]) {
 		return errors.New("invalid signature")
 	}
+	log.Printf("signature verified! their public key is: %s\n", base64.RawURLEncoding.EncodeToString(k[:]))
 
-	k = ed25519.PublicKey(k[:])
+	n.conns[conn] = struct{}{}
+
+	// k = ed25519.PublicKey(k[:])
 	d, e := gob.NewDecoder(conn), gob.NewEncoder(conn)
 	var m struct{ Key, Value []byte }
 	for {
@@ -152,4 +168,12 @@ func (n *Node) Send(to net.Addr, m Message) error {
 func (n *Node) send(e *gob.Encoder, m Message) error {
 
 	return nil
+}
+
+func (n *Node) Close() error {
+	var g errgroup.Group
+	for conn := range n.conns {
+		g.Go(conn.Close)
+	}
+	return g.Wait()
 }
