@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/base64"
 	"flag"
@@ -26,16 +27,21 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	l := log.New(os.Stdout, base64.RawURLEncoding.EncodeToString(k.Public().(ed25519.PublicKey))+" ", log.Ldate|log.Ltime)
+
 	n, err := pastry.New(
+		pastry.Logger(l),
 		// Pass private key to node
 		pastry.Key(k),
 		// Use a forwarding func to log forwarded requests or modify next
 		pastry.Forward(pastry.ForwarderFunc(func(key, b, next []byte) {
 			// message <key> with <b> is being forwarded to <next>
+			l.Printf("%s forwarding\n", base64.RawURLEncoding.EncodeToString(key))
 		})),
 		// Handle received messages
 		pastry.Deliver(pastry.DelivererFunc(func(key, b []byte) {
-
+			l.Printf("%s delivered with content %s\n", base64.RawURLEncoding.EncodeToString(key), string(b))
 		})),
 	)
 	if err != nil {
@@ -55,20 +61,29 @@ func main() {
 		select {
 		case <-c:
 			cancel()
-			return n.Close()
+			var g errgroup.Group
+			g.Go(n.Close)
+			g.Go(os.Stdin.Close)
+			return g.Wait()
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	})
 
-	id := base64.RawURLEncoding.EncodeToString(k.Public().(ed25519.PublicKey))
+	go func() {
+		defer cancel()
+		r := bufio.NewScanner(os.Stdin)
+		for r.Scan() {
+			n.Route([]byte("some-key"), r.Bytes())
+		}
+	}()
 
-	log.Printf("%s: Listening on %s\n", id, *addr)
+	l.Printf("Listening on %s\n", *addr)
 
 	if s := strings.Fields(strings.TrimSpace(*dial)); len(s) > 0 {
-		log.Printf("%s: Connecting to %d nodes\n", id, len(s))
+		l.Printf("Connecting to %d nodes\n", len(s))
 		for _, addr := range s {
-			log.Printf("%s: Connecting to %s\n", id, addr)
+			l.Printf("Connecting to %s\n", addr)
 			conn, err := net.Dial("tcp", addr)
 			if err != nil {
 				log.Fatal(err)

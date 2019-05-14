@@ -6,10 +6,11 @@ import (
 	"encoding/base64"
 	"encoding/gob"
 	"errors"
-	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
+	"time"
 
 	"golang.org/x/crypto/ed25519"
 	"golang.org/x/sync/errgroup"
@@ -22,18 +23,23 @@ type Node struct {
 	forwarder  Forwarder
 	deliverer  Deliverer
 	conns      map[net.Conn]struct{}
+	logger     *log.Logger
 }
 
 func New(opts ...Option) (*Node, error) {
 	n := &Node{conns: make(map[net.Conn]struct{})}
 	n.Apply(opts...)
-	if n.privateKey == nil {
+	if n.privateKey == nil && n.publicKey == nil {
 		_, k, err := ed25519.GenerateKey(nil)
 		if err != nil {
 			return nil, err
 		}
 		Key(k)(n)
 	}
+	if n.logger == nil {
+		n.logger = log.New(ioutil.Discard, "", 0)
+	}
+	n.Leafset = NewLeafset(n)
 	return n, nil
 }
 
@@ -66,29 +72,33 @@ func (n *Node) Serve(l net.Listener) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("Got conn! Accepting")
+		n.logger.Print("Accepting conn")
 		go n.Accept(conn)
 	}
 }
 
 func (n *Node) DialAndAccept(network, address string) error {
-	conn, err := net.Dial(network, address)
+	conn, err := (&net.Dialer{KeepAlive: 10 * time.Second}).Dial(network, address)
 	if err != nil {
 		return err
 	}
 	return n.Accept(conn)
 }
 
-func (n *Node) Accept(conn net.Conn) error {
-	defer conn.Close()
+func (n *Node) Accept(conn net.Conn) (err error) {
+	defer func() {
+		if err != nil {
+			conn.Close()
+		}
+	}()
 
 	// send our public key
 	// read their public key
-	log.Println("writing public key")
+	n.logger.Println("writing public key")
 	if _, err := conn.Write(n.publicKey); err != nil {
 		return err
 	}
-	log.Println("receiving public key")
+	n.logger.Println("receiving public key")
 	var k [ed25519.PublicKeySize]byte
 	if _, err := io.ReadFull(conn, k[:]); err != nil {
 		return err
@@ -97,63 +107,81 @@ func (n *Node) Accept(conn net.Conn) error {
 	// send them a challenge
 	// read their challenge
 	// a - our challenge
-	// b - their challenge - then our signature - then their signature
-	log.Println("generating challenge")
+	// b - their challenge - then after we've signed it, their signature
+	n.logger.Println("generating challenge")
 	var a, b [ed25519.SignatureSize]byte
 	if _, err := io.ReadFull(rand.Reader, a[:]); err != nil {
 		return err
 	}
-	log.Println("writing challenge")
+	n.logger.Println("writing challenge")
 	if _, err := conn.Write(a[:]); err != nil {
 		return err
 	}
-	log.Println("receiving challenge")
+	n.logger.Println("receiving challenge")
 	if _, err := io.ReadFull(conn, b[:]); err != nil {
 		return err
 	}
 
 	// send our signature
 	// read their signature
-	log.Println("sending our signature")
+	n.logger.Println("sending our signature")
 	if _, err := conn.Write(ed25519.Sign(n.privateKey, b[:])); err != nil {
 		return err
 	}
-	log.Println("reading their signature")
+	n.logger.Println("reading their signature")
 	if _, err := io.ReadFull(conn, b[:]); err != nil {
 		return err
 	}
 
 	// verify
-	log.Println("verifying signature")
+	n.logger.Println("verifying signature")
 	if !ed25519.Verify(k[:], a[:], b[:]) {
 		return errors.New("invalid signature")
 	}
-	log.Printf("signature verified! their public key is: %s\n", base64.RawURLEncoding.EncodeToString(k[:]))
+	n.logger.Printf(
+		"signature %s verified! their public key is: %s\n",
+		base64.RawURLEncoding.EncodeToString(b[:]),
+		base64.RawURLEncoding.EncodeToString(k[:]),
+	)
 
-	n.conns[conn] = struct{}{}
+	p := n.newPeer(k[:], conn)
 
-	// k = ed25519.PublicKey(k[:])
-	d, e := gob.NewDecoder(conn), gob.NewEncoder(conn)
-	var m struct{ Key, Value []byte }
-	for {
-		if err := d.Decode(&m); err != nil {
-			return err
-		}
-		switch {
-		case m.Key == nil:
-			if n.deliverer != nil {
-				go n.deliverer.Deliver(m.Key, m.Value)
-			}
-		case m.Value == nil:
-			e.Encode(m)
-		default:
-			n.Route(m.Key, m.Value)
-		}
+	if ok := n.Leafset.Insert(p); !ok {
+		return errors.New("peer either already exists or does not fit in leafset")
 	}
+
+	go func() {
+		defer p.Close()
+		defer n.Leafset.Remove(p)
+
+		d := gob.NewDecoder(conn)
+		var m Message
+		for {
+			if err := d.Decode(&m); err != nil {
+				n.logger.Printf("error: %s\n", err)
+				return
+			}
+			switch {
+			case m.Key == nil:
+				if n.deliverer != nil {
+					go n.deliverer.Deliver(m.Key, m.Data)
+				}
+			case m.Data == nil:
+				if err := p.Encode(m); err != nil {
+					return
+				}
+			default:
+				go n.Route(m.Key, m.Data)
+			}
+		}
+	}()
+
+	return nil
 }
 
 // Send data to the node closest to the key.
 func (n *Node) Route(key, b []byte) {
+	n.logger.Printf("Routing %s\n", base64.RawURLEncoding.EncodeToString(key))
 	p := n.Leafset.Closest(key)
 	if p == nil {
 		if n.deliverer != nil {
@@ -164,13 +192,16 @@ func (n *Node) Route(key, b []byte) {
 	if n.forwarder != nil {
 		n.forwarder.Forward(key, b, p.PublicKey)
 	}
-	// n.send(p.Encoder, Message{key, b})
+	p.Encode(Message{key, b})
 }
 
-func (n *Node) Close() error {
-	var g errgroup.Group
-	for conn := range n.conns {
-		g.Go(conn.Close)
+func (n *Node) newPeer(k ed25519.PublicKey, conn net.Conn) *Peer {
+	return &Peer{
+		PublicKey: ed25519.PublicKey(k[:]),
+		Node:      n,
+		Encoder:   gob.NewEncoder(conn),
+		Closer:    conn,
 	}
-	return g.Wait()
 }
+
+func (n *Node) Close() error { return n.Leafset.Close() }

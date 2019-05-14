@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"golang.org/x/crypto/ed25519"
+	"golang.org/x/sync/errgroup"
 )
 
 const leafsetSize = ed25519.PublicKeySize * 8 * 2
@@ -27,28 +28,31 @@ func (l *Leafset) Closest(k []byte) *Peer {
 }
 
 func (l *Leafset) closest(k []byte, s []*Peer) *Peer {
-	return s[sort.Search(len(s), func(i int) bool {
-		return bytes.Compare(s[i].PublicKey, k) >= 0
-	})]
+	if s == nil {
+		return nil
+	}
+	i := sort.Search(len(s), func(i int) bool { return bytes.Compare(s[i].PublicKey, k) >= 0 })
+	if i >= len(s) {
+		i = len(s) - 1
+	}
+	return s[i]
 }
 
-func (l *Leafset) Insert(p *Peer) bool {
+func (l *Leafset) Insert(p *Peer) (ok bool) {
 	if c := bytes.Compare(p.PublicKey, l.parent.publicKey); c < 0 {
-		return l.insert(p, l.left)
+		l.left, ok = l.insert(p, l.left)
 	} else if c > 0 {
-		return l.insert(p, l.right)
+		l.right, ok = l.insert(p, l.right)
 	}
-	return false
+	return ok
 }
 
-func (l *Leafset) insert(p *Peer, s []*Peer) bool {
-	i := sort.Search(len(s), func(i int) bool {
-		return bytes.Compare(s[i].PublicKey, p.PublicKey) >= 0
-	})
+func (l *Leafset) insert(p *Peer, s []*Peer) ([]*Peer, bool) {
+	i := sort.Search(len(s), func(i int) bool { return bytes.Compare(s[i].PublicKey, p.PublicKey) >= 0 })
 	if i >= leafsetSize {
-		return false
+		return s, false
 	}
-	if i >= len(s) || !!bytes.Equal(s[i].PublicKey, p.PublicKey) {
+	if i >= len(s) || !bytes.Equal(s[i].PublicKey, p.PublicKey) {
 		s = append(s, nil)
 		copy(s[i+1:], s[i:])
 		s[i] = p
@@ -59,26 +63,39 @@ func (l *Leafset) insert(p *Peer, s []*Peer) bool {
 			s = s[:len(s)-1]
 		}
 	}
-	return true
+	return s, true
 }
 
-func (l *Leafset) Remove(p *Peer) bool {
+func (l *Leafset) Remove(p *Peer) (ok bool) {
 	if c := bytes.Compare(p.PublicKey, l.parent.publicKey); c < 0 {
-		return l.remove(p, l.left)
+		l.left, ok = l.remove(p, l.left)
 	} else if c > 0 {
-		return l.remove(p, l.right)
+		l.right, ok = l.remove(p, l.right)
 	}
-	return false
+	return ok
 }
 
-func (l *Leafset) remove(p *Peer, s []*Peer) bool {
+func (l *Leafset) remove(p *Peer, s []*Peer) ([]*Peer, bool) {
 	if i := sort.Search(len(s), func(i int) bool {
 		return bytes.Compare(s[i].PublicKey, p.PublicKey) >= 0
 	}); i < len(s) && bytes.Equal(s[i].PublicKey, p.PublicKey) {
 		copy(s[i:], s[i+1:])
 		s[len(s)-1] = nil
 		s = s[:len(s)-1]
-		return true
+		return s, true
 	}
-	return false
+	return s, false
+}
+
+func (l *Leafset) Close() error {
+	var g errgroup.Group
+	for _, p := range l.left {
+		l.Remove(p)
+		g.Go(p.Close)
+	}
+	for _, p := range l.right {
+		l.Remove(p)
+		g.Go(p.Close)
+	}
+	return g.Wait()
 }
