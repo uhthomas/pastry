@@ -75,11 +75,9 @@ func main() {
 
 	go func() {
 		defer cancel()
-		r := bufio.NewScanner(os.Stdin)
-		var h [blake2b.Size256]byte
-		for r.Scan() {
+		for r := bufio.NewScanner(os.Stdin); r.Scan(); {
 			b := r.Bytes()
-			h = blake2b.Sum256(b)
+			h := blake2b.Sum256(b)
 			n.Route(h[:], b)
 		}
 	}()
