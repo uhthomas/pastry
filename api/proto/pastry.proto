@@ -1,0 +1,7 @@
+syntax = 'proto3';
+package pastry;
+
+message Message {
+    bytes key = 1;
+    bytes body = 2;
+}
