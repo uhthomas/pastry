@@ -44,9 +44,7 @@ func (n *Node) Apply(opts ...Option) error {
 	return nil
 }
 
-func (n *Node) PublicKey() ed25519.PublicKey {
-	return n.key.Public().(ed25519.PublicKey)
-}
+func (n *Node) PublicKey() ed25519.PublicKey { return n.key.Public().(ed25519.PublicKey) }
 
 func (n *Node) ListenAndServe(ctx context.Context, network, address string) error {
 	l, err := net.Listen(network, address)
@@ -94,7 +92,7 @@ func (n *Node) Accept(conn net.Conn) (err error) {
 	// send our public key
 	// read their public key
 	n.logger.Println("writing public key")
-	if _, err := conn.Write(n.Public); err != nil {
+	if _, err := conn.Write(n.PublicKey()); err != nil {
 		return err
 	}
 	n.logger.Println("receiving public key")
