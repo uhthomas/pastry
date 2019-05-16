@@ -10,6 +10,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"io"
 	"log"
 
 	"github.com/uhthomas/pastry/pkg/pastry"
@@ -19,13 +21,16 @@ import (
 
 func main() {
 	// Generate key for node
-	_, k, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	n, err := pastry.New(
-		// Pass private key to node
-		pastry.Key(k),
+    var seed [ed25519.SeedSize]byte
+    if _, err := io.ReadFull(rand.Reader, seed[:]); err != nil {
+        log.Fatal(err)
+    }
+
+    n, err := pastry.New(
+        // Pass logger to node
+        pastry.DebugLogger,
+        // Pass ed25519 seed to node
+        pastry.Seed(seed[:]),
 		// Use a forwarding func to log forwarded requests or modify next
 		pastry.Forward(pastry.ForwarderFunc(func(key, b, next []byte) {
 			// message <key> with <b> is being forwarded to <next>
