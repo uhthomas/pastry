@@ -67,10 +67,7 @@ func main() {
 		select {
 		case <-c:
 			cancel()
-			var g errgroup.Group
-			g.Go(n.Close)
-			g.Go(os.Stdin.Close)
-			return g.Wait()
+			return n.Close()
 		case <-ctx.Done():
 			return ctx.Err()
 		}
