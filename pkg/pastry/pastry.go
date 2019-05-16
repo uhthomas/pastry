@@ -7,7 +7,6 @@ import (
 	"encoding/gob"
 	"errors"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"time"
@@ -17,36 +16,36 @@ import (
 )
 
 type Node struct {
-	Leafset    Leafset
-	privateKey ed25519.PrivateKey
-	publicKey  ed25519.PublicKey
-	forwarder  Forwarder
-	deliverer  Deliverer
-	conns      map[net.Conn]struct{}
-	logger     *log.Logger
+	Leafset   LeafSet
+	key       ed25519.PrivateKey
+	forwarder Forwarder
+	deliverer Deliverer
+	logger    *log.Logger
 }
 
 func New(opts ...Option) (*Node, error) {
-	n := &Node{conns: make(map[net.Conn]struct{})}
-	n.Apply(opts...)
-	if n.privateKey == nil && n.publicKey == nil {
-		_, k, err := ed25519.GenerateKey(nil)
-		if err != nil {
-			return nil, err
-		}
-		Key(k)(n)
+	n := new(Node)
+	if err := n.Apply(append([]Option{
+		DiscardLogger,
+		RandomSeed,
+	}, opts...)...); err != nil {
+		return nil, err
 	}
-	if n.logger == nil {
-		n.logger = log.New(ioutil.Discard, "", 0)
-	}
-	n.Leafset = NewLeafset(n)
+	n.Leafset = NewLeafSet(n)
 	return n, nil
 }
 
-func (n *Node) Apply(opts ...Option) {
+func (n *Node) Apply(opts ...Option) error {
 	for _, opt := range opts {
-		opt(n)
+		if err := opt(n); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+func (n *Node) PublicKey() ed25519.PublicKey {
+	return n.key.Public().(ed25519.PublicKey)
 }
 
 func (n *Node) ListenAndServe(ctx context.Context, network, address string) error {
@@ -95,7 +94,7 @@ func (n *Node) Accept(conn net.Conn) (err error) {
 	// send our public key
 	// read their public key
 	n.logger.Println("writing public key")
-	if _, err := conn.Write(n.publicKey); err != nil {
+	if _, err := conn.Write(n.Public); err != nil {
 		return err
 	}
 	n.logger.Println("receiving public key")
@@ -125,7 +124,7 @@ func (n *Node) Accept(conn net.Conn) (err error) {
 	// send our signature
 	// read their signature
 	n.logger.Println("sending our signature")
-	if _, err := conn.Write(ed25519.Sign(n.privateKey, b[:])); err != nil {
+	if _, err := conn.Write(ed25519.Sign(n.key, b[:])); err != nil {
 		return err
 	}
 	n.logger.Println("reading their signature")
@@ -182,16 +181,21 @@ func (n *Node) Accept(conn net.Conn) (err error) {
 // Send data to the node closest to the key.
 func (n *Node) Route(key, b []byte) {
 	n.logger.Printf("Routing %s\n", base64.RawURLEncoding.EncodeToString(key))
+
 	p := n.Leafset.Closest(key)
 	if p == nil {
+		n.logger.Printf("Delivering %s\n", base64.RawURLEncoding.EncodeToString(key))
 		if n.deliverer != nil {
 			n.deliverer.Deliver(key, b)
 		}
 		return
 	}
+
+	n.logger.Printf("Forwarding %s\n", base64.RawURLEncoding.EncodeToString(key))
 	if n.forwarder != nil {
 		n.forwarder.Forward(key, b, p.PublicKey)
 	}
+
 	p.Encode(Message{key, b})
 }
 

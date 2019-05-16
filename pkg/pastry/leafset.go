@@ -8,18 +8,18 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const leafsetSize = ed25519.PublicKeySize * 8 * 2
+const leafs = ed25519.PublicKeySize * 8 * 2
 
-type Leafset struct {
+type LeafSet struct {
 	parent      *Node
 	left, right []*Peer
 }
 
-func NewLeafset(n *Node) Leafset { return Leafset{parent: n} }
+func NewLeafSet(n *Node) LeafSet { return LeafSet{parent: n} }
 
 // Closest will return the closest peer to the given key. If the key is equal to the parent then nil is returned.
-func (l *Leafset) Closest(k []byte) *Peer {
-	if c := bytes.Compare(k, l.parent.publicKey); c < 0 {
+func (l *LeafSet) Closest(k []byte) *Peer {
+	if c := bytes.Compare(k, l.parent.PublicKey()); c < 0 {
 		return l.closest(k, l.left)
 	} else if c > 0 {
 		return l.closest(k, l.right)
@@ -27,7 +27,7 @@ func (l *Leafset) Closest(k []byte) *Peer {
 	return nil
 }
 
-func (l *Leafset) closest(k []byte, s []*Peer) *Peer {
+func (l *LeafSet) closest(k []byte, s []*Peer) *Peer {
 	if s == nil {
 		return nil
 	}
@@ -38,8 +38,8 @@ func (l *Leafset) closest(k []byte, s []*Peer) *Peer {
 	return s[i]
 }
 
-func (l *Leafset) Insert(p *Peer) (ok bool) {
-	if c := bytes.Compare(p.PublicKey, l.parent.publicKey); c < 0 {
+func (l *LeafSet) Insert(p *Peer) (ok bool) {
+	if c := bytes.Compare(p.PublicKey, l.parent.PublicKey()); c < 0 {
 		l.left, ok = l.insert(p, l.left)
 	} else if c > 0 {
 		l.right, ok = l.insert(p, l.right)
@@ -47,16 +47,16 @@ func (l *Leafset) Insert(p *Peer) (ok bool) {
 	return ok
 }
 
-func (l *Leafset) insert(p *Peer, s []*Peer) ([]*Peer, bool) {
+func (l *LeafSet) insert(p *Peer, s []*Peer) ([]*Peer, bool) {
 	i := sort.Search(len(s), func(i int) bool { return bytes.Compare(s[i].PublicKey, p.PublicKey) >= 0 })
-	if i >= leafsetSize {
+	if i >= leafs {
 		return s, false
 	}
 	if i >= len(s) || !bytes.Equal(s[i].PublicKey, p.PublicKey) {
 		s = append(s, nil)
 		copy(s[i+1:], s[i:])
 		s[i] = p
-		if len(s) > leafsetSize {
+		if len(s) > leafs {
 			// we don't want to block the insert and we don't care about
 			// errors
 			go s[len(s)-1].Close()
@@ -66,8 +66,8 @@ func (l *Leafset) insert(p *Peer, s []*Peer) ([]*Peer, bool) {
 	return s, true
 }
 
-func (l *Leafset) Remove(p *Peer) (ok bool) {
-	if c := bytes.Compare(p.PublicKey, l.parent.publicKey); c < 0 {
+func (l *LeafSet) Remove(p *Peer) (ok bool) {
+	if c := bytes.Compare(p.PublicKey, l.parent.PublicKey()); c < 0 {
 		l.left, ok = l.remove(p, l.left)
 	} else if c > 0 {
 		l.right, ok = l.remove(p, l.right)
@@ -75,7 +75,7 @@ func (l *Leafset) Remove(p *Peer) (ok bool) {
 	return ok
 }
 
-func (l *Leafset) remove(p *Peer, s []*Peer) ([]*Peer, bool) {
+func (l *LeafSet) remove(p *Peer, s []*Peer) ([]*Peer, bool) {
 	if i := sort.Search(len(s), func(i int) bool {
 		return bytes.Compare(s[i].PublicKey, p.PublicKey) >= 0
 	}); i < len(s) && bytes.Equal(s[i].PublicKey, p.PublicKey) {
@@ -87,7 +87,7 @@ func (l *Leafset) remove(p *Peer, s []*Peer) ([]*Peer, bool) {
 	return s, false
 }
 
-func (l *Leafset) Close() error {
+func (l *LeafSet) Close() error {
 	var g errgroup.Group
 	for _, p := range l.left {
 		l.Remove(p)

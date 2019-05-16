@@ -19,12 +19,12 @@ package pastry
 // type peer struct {
 // 	m         sync.Mutex
 // 	conn      net.Conn
-// 	publicKey ed25519.PublicKey
+// 	Public ed25519.PublicKey
 // 	enc       *gob.Encoder
 // }
 //
 // func (p *peer) PublicKey() ed25519.PublicKey {
-// 	return p.publicKey
+// 	return p.Public
 // }
 //
 // func (p *peer) Encode(key, b []byte) error {

@@ -3,8 +3,10 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"flag"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -13,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/uhthomas/pastry/pkg/pastry"
+	"golang.org/x/crypto/blake2b"
 	"golang.org/x/crypto/ed25519"
 	"golang.org/x/sync/errgroup"
 )
@@ -23,25 +26,28 @@ func main() {
 	flag.Parse()
 
 	// Generate key for node
-	_, k, err := ed25519.GenerateKey(nil)
-	if err != nil {
+	var seed [ed25519.SeedSize]byte
+	if _, err := io.ReadFull(rand.Reader, seed[:]); err != nil {
 		log.Fatal(err)
 	}
 
-	l := log.New(os.Stdout, base64.RawURLEncoding.EncodeToString(k.Public().(ed25519.PublicKey))+" ", log.Ldate|log.Ltime)
-
 	n, err := pastry.New(
-		pastry.Logger(l),
-		// Pass private key to node
-		pastry.Key(k),
+		// Pass logger to node
+		pastry.DebugLogger,
+		// Pass ed25519 seed to node
+		pastry.Seed(seed[:]),
 		// Use a forwarding func to log forwarded requests or modify next
 		pastry.Forward(pastry.ForwarderFunc(func(key, b, next []byte) {
 			// message <key> with <b> is being forwarded to <next>
-			l.Printf("%s forwarding\n", base64.RawURLEncoding.EncodeToString(key))
 		})),
 		// Handle received messages
 		pastry.Deliver(pastry.DelivererFunc(func(key, b []byte) {
-			l.Printf("%s delivered with content %s\n", base64.RawURLEncoding.EncodeToString(key), string(b))
+			// message <key> with <b> delivered
+			log.Printf(
+				"Message %s delivered with body %s",
+				base64.RawURLEncoding.EncodeToString(key),
+				string(b),
+			)
 		})),
 	)
 	if err != nil {
@@ -73,17 +79,20 @@ func main() {
 	go func() {
 		defer cancel()
 		r := bufio.NewScanner(os.Stdin)
+		var h [blake2b.Size256]byte
 		for r.Scan() {
-			n.Route([]byte("some-key"), r.Bytes())
+			b := r.Bytes()
+			h = blake2b.Sum256(b)
+			n.Route(h[:], b)
 		}
 	}()
 
-	l.Printf("Listening on %s\n", *addr)
+	log.Printf("Listening on %s\n", *addr)
 
 	if s := strings.Fields(strings.TrimSpace(*dial)); len(s) > 0 {
-		l.Printf("Connecting to %d nodes\n", len(s))
+		log.Printf("Connecting to %d nodes\n", len(s))
 		for _, addr := range s {
-			l.Printf("Connecting to %s\n", addr)
+			log.Printf("Connecting to %s\n", addr)
 			conn, err := net.Dial("tcp", addr)
 			if err != nil {
 				log.Fatal(err)

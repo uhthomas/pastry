@@ -18,12 +18,12 @@ func TestLeafset_Closest(t *testing.T) {
 	middle[0] = 2
 	right[0] = 3
 
-	n, err := pastry.New(pastry.Key(append(make([]byte, ed25519.SeedSize), middle...)))
+	n, err := pastry.New(pastry.Seed(append(make([]byte, ed25519.SeedSize), middle...)))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	l := pastry.NewLeafset(n)
+	l := pastry.NewLeafSet(n)
 	if ok := l.Insert(&pastry.Peer{PublicKey: left}); !ok {
 		t.Fatal("could not insert left")
 	}
