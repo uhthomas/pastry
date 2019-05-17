@@ -22,7 +22,7 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":2376", "The address to listen on")
-	dial := flag.String("dial", "", "a comma separated list of address to connect to")
+	dial := flag.String("dial", "", "a comma separated list of addresses to connect to")
 	flag.Parse()
 
 	// Generate key for node
@@ -78,7 +78,9 @@ func main() {
 		for r := bufio.NewScanner(os.Stdin); r.Scan(); {
 			b := r.Bytes()
 			h := blake2b.Sum256(b)
-			n.Route(h[:], b)
+			if err := n.Route(h[:], b); err != nil {
+				log.Fatal(err)
+			}
 		}
 	}()
 

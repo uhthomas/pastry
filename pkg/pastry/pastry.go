@@ -177,7 +177,7 @@ func (n *Node) Accept(conn net.Conn) (err error) {
 }
 
 // Send data to the node closest to the key.
-func (n *Node) Route(key, b []byte) {
+func (n *Node) Route(key, b []byte) error {
 	n.logger.Printf("Routing %s\n", base64.RawURLEncoding.EncodeToString(key))
 
 	p := n.Leafset.Closest(key)
@@ -186,7 +186,7 @@ func (n *Node) Route(key, b []byte) {
 		if n.deliverer != nil {
 			n.deliverer.Deliver(key, b)
 		}
-		return
+		return nil
 	}
 
 	n.logger.Printf("Forwarding %s\n", base64.RawURLEncoding.EncodeToString(key))
@@ -194,7 +194,7 @@ func (n *Node) Route(key, b []byte) {
 		n.forwarder.Forward(key, b, p.PublicKey)
 	}
 
-	p.Encode(Message{key, b})
+	return p.Encode(Message{key, b})
 }
 
 func (n *Node) newPeer(k ed25519.PublicKey, conn net.Conn) *Peer {
