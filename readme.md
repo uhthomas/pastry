@@ -4,7 +4,7 @@ The [Pastry DHT](https://www.freepastry.org/) written in Go. Written specificall
 # Status
 Under development.
 
-## Usage
+## Example
 ```go
 package main
 
