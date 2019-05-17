@@ -1,4 +1,5 @@
 # Pastry
+[![GoDoc](https://godoc.org/github.com/uhthomas/pastry?status.svg)](https://godoc.org/github.com/uhthomas/pastry)
 The [Pastry DHT](https://www.freepastry.org/) written in Go. Written specifically for [Pastry Search](https://github.com/uhthomas/pastrysearch).
 
 # Status
