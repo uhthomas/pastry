@@ -33,12 +33,13 @@ func main() {
 		// Pass ed25519 seed to node
 		pastry.Seed(seed[:]),
 		// Use a forwarding func to log forwarded requests or modify next
-		pastry.Forward(pastry.ForwarderFunc(func(key, b, next []byte) {
+		pastry.Forward(pastry.ForwarderFunc(func(ctx context.Context, next, key []byte, r io.Reader) error {
 			// message <key> with <b> is being forwarded to <next>
+			return nil
 		})),
 		// Handle received messages
-		pastry.Deliver(pastry.DelivererFunc(func(key, b []byte) {
-		
+		pastry.Deliver(pastry.DelivererFunc(func(ctx context.Context, key []byte, r io.Reader) error {
+		        return nil
 		})),
 	)
 	if err != nil {
@@ -46,10 +47,10 @@ func main() {
 	}
 	
 	// Connect to another node -- bootstrap 
-	go n.DialAndAccept("tcp", "localhost:1234")
+	go n.DialAndAccept("localhost:1234")
 	
 	// Listen for other nodes
-	if err := n.ListenAndServe(context.Background(), "tcp", "localhost"); err != nil {
+	if err := n.ListenAndServe(context.Background(), "localhost"); err != nil {
 		log.Fatal(err)
 	}
 }
