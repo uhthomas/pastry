@@ -50,11 +50,11 @@ func Logger(l *log.Logger) Option {
 }
 
 func DiscardLogger(n *Node) error {
-	n.logger = log.New(ioutil.Discard, "", 0)
-	return nil
+	return Logger(log.New(ioutil.Discard, "", 0))(n)
 }
 
 func DebugLogger(n *Node) error {
-	n.logger = log.New(os.Stdout, base64.RawURLEncoding.EncodeToString(n.PublicKey())+" ", log.Ldate|log.Ltime)
-	return nil
+	return Logger(
+		log.New(os.Stdout, base64.RawURLEncoding.EncodeToString(n.PublicKey())+" ", log.Ldate|log.Ltime),
+	)(n)
 }

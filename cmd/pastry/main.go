@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -37,17 +38,23 @@ func main() {
 		// Pass ed25519 seed to node
 		pastry.Seed(seed[:]),
 		// Use a forwarding func to log forwarded requests or modify next
-		pastry.Forward(pastry.ForwarderFunc(func(key, b, next []byte) {
-			// message <key> with <b> is being forwarded to <next>
+		pastry.Forward(pastry.ForwarderFunc(func(ctx context.Context, next, key []byte, r io.Reader) error {
+			// forwarding to <next> with <key> and body <r>
+			return nil
 		})),
 		// Handle received messages
-		pastry.Deliver(pastry.DelivererFunc(func(key, b []byte) {
-			// message <key> with <b> delivered
+		pastry.Deliver(pastry.DelivererFunc(func(ctx context.Context, key []byte, r io.Reader) error {
+			// message <key> with body <r> delivered
+			var s strings.Builder
+			if _, err := io.Copy(&s, r); err != nil {
+				return err
+			}
 			log.Printf(
 				"Message %s delivered with body %s",
 				base64.RawURLEncoding.EncodeToString(key),
-				string(b),
+				s.String(),
 			)
+			return nil
 		})),
 	)
 	if err != nil {
@@ -58,7 +65,7 @@ func main() {
 
 	g, ctx := errgroup.WithContext(ctx)
 
-	g.Go(func() error { return n.ListenAndServe(ctx, "tcp", *addr) })
+	g.Go(func() error { return n.ListenAndServe(ctx, *addr) })
 
 	g.Go(func() error {
 		c := make(chan os.Signal, 1)
@@ -78,7 +85,7 @@ func main() {
 		for r := bufio.NewScanner(os.Stdin); r.Scan(); {
 			b := r.Bytes()
 			h := blake2b.Sum256(b)
-			if err := n.Route(h[:], b); err != nil {
+			if err := n.Route(ctx, h[:], bytes.NewReader(b)); err != nil {
 				log.Fatal(err)
 			}
 		}

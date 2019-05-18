@@ -1,16 +1,15 @@
 package pastry
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/gob"
 	"errors"
 	"io"
 	"log"
-	"net"
-	"time"
 
+	"github.com/lucas-clemente/quic-go"
 	"golang.org/x/crypto/ed25519"
 	"golang.org/x/sync/errgroup"
 )
@@ -46,8 +45,8 @@ func (n *Node) Apply(opts ...Option) error {
 
 func (n *Node) PublicKey() ed25519.PublicKey { return n.key.Public().(ed25519.PublicKey) }
 
-func (n *Node) ListenAndServe(ctx context.Context, network, address string) error {
-	l, err := net.Listen(network, address)
+func (n *Node) ListenAndServe(ctx context.Context, address string) error {
+	l, err := quic.ListenAddr(address, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -63,41 +62,54 @@ func (n *Node) ListenAndServe(ctx context.Context, network, address string) erro
 	return g.Wait()
 }
 
-func (n *Node) Serve(l net.Listener) error {
+func (n *Node) Serve(l quic.Listener) error {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
 			return err
 		}
 		n.logger.Print("Accepting conn")
-		go n.Accept(conn)
+		go func() {
+			stream, err := conn.AcceptStream()
+			if err != nil {
+				return
+			}
+			n.Accept(conn, stream)
+		}()
 	}
 }
 
-func (n *Node) DialAndAccept(network, address string) error {
-	conn, err := (&net.Dialer{KeepAlive: 10 * time.Second}).Dial(network, address)
+func (n *Node) DialAndAccept(address string) error {
+	conn, err := quic.DialAddrContext(context.Background(), address, nil, nil)
 	if err != nil {
 		return err
 	}
-	return n.Accept(conn)
+	stream, err := conn.OpenStream()
+	if err != nil {
+		return err
+	}
+	return n.Accept(conn, stream)
 }
 
-func (n *Node) Accept(conn net.Conn) (err error) {
+// Accept takes the session and a pre-opened stream since we need to do the initial handshake. The only way to do that
+// agnostically is to have a pre-opened stream.
+func (n *Node) Accept(conn quic.Session, stream quic.Stream) (err error) {
 	defer func() {
 		if err != nil {
 			conn.Close()
 		}
 	}()
+	defer stream.Close()
 
 	// send our public key
 	// read their public key
 	n.logger.Println("writing public key")
-	if _, err := conn.Write(n.PublicKey()); err != nil {
+	if _, err := stream.Write(n.PublicKey()); err != nil {
 		return err
 	}
 	n.logger.Println("receiving public key")
 	var k [ed25519.PublicKeySize]byte
-	if _, err := io.ReadFull(conn, k[:]); err != nil {
+	if _, err := io.ReadFull(stream, k[:]); err != nil {
 		return err
 	}
 
@@ -111,22 +123,22 @@ func (n *Node) Accept(conn net.Conn) (err error) {
 		return err
 	}
 	n.logger.Println("writing challenge")
-	if _, err := conn.Write(a[:]); err != nil {
+	if _, err := stream.Write(a[:]); err != nil {
 		return err
 	}
 	n.logger.Println("receiving challenge")
-	if _, err := io.ReadFull(conn, b[:]); err != nil {
+	if _, err := io.ReadFull(stream, b[:]); err != nil {
 		return err
 	}
 
 	// send our signature
 	// read their signature
 	n.logger.Println("sending our signature")
-	if _, err := conn.Write(ed25519.Sign(n.key, b[:])); err != nil {
+	if _, err := stream.Write(ed25519.Sign(n.key, b[:])); err != nil {
 		return err
 	}
 	n.logger.Println("reading their signature")
-	if _, err := io.ReadFull(conn, b[:]); err != nil {
+	if _, err := io.ReadFull(stream, b[:]); err != nil {
 		return err
 	}
 
@@ -141,35 +153,27 @@ func (n *Node) Accept(conn net.Conn) (err error) {
 		base64.RawURLEncoding.EncodeToString(k[:]),
 	)
 
-	p := n.newPeer(k[:], conn)
-
-	if ok := n.Leafset.Insert(p); !ok {
+	if ok := n.Leafset.Insert(k[:], conn); !ok {
 		return errors.New("peer either already exists or does not fit in leafset")
 	}
 
 	go func() {
-		defer p.Close()
-		defer n.Leafset.Remove(p)
+		defer conn.Close()
+		defer n.Leafset.Remove(k[:])
 
-		d := gob.NewDecoder(conn)
-		var m Message
 		for {
-			if err := d.Decode(&m); err != nil {
-				n.logger.Printf("error: %s\n", err)
+			stream, err := conn.AcceptStream()
+			if err != nil {
 				return
 			}
-			switch {
-			case m.Key == nil:
-				if n.deliverer != nil {
-					go n.deliverer.Deliver(m.Key, m.Data)
-				}
-			case m.Data == nil:
-				if err := p.Encode(m); err != nil {
+			go func() {
+				defer stream.Close()
+				var key [ed25519.PublicKeySize]byte
+				if _, err := io.ReadFull(stream, key[:]); err != nil {
 					return
 				}
-			default:
-				go n.Route(m.Key, m.Data)
-			}
+				n.Route(context.TODO(), key[:], stream)
+			}()
 		}
 	}()
 
@@ -177,33 +181,33 @@ func (n *Node) Accept(conn net.Conn) (err error) {
 }
 
 // Send data to the node closest to the key.
-func (n *Node) Route(key, b []byte) error {
+func (n *Node) Route(ctx context.Context, key []byte, r io.Reader) error {
 	n.logger.Printf("Routing %s\n", base64.RawURLEncoding.EncodeToString(key))
 
 	p := n.Leafset.Closest(key)
 	if p == nil {
 		n.logger.Printf("Delivering %s\n", base64.RawURLEncoding.EncodeToString(key))
 		if n.deliverer != nil {
-			n.deliverer.Deliver(key, b)
+			return n.deliverer.Deliver(ctx, key, r)
 		}
 		return nil
 	}
 
 	n.logger.Printf("Forwarding %s\n", base64.RawURLEncoding.EncodeToString(key))
 	if n.forwarder != nil {
-		n.forwarder.Forward(key, b, p.PublicKey)
+		if err := n.forwarder.Forward(ctx, p.PublicKey, key, r); err != nil {
+			return err
+		}
 	}
 
-	return p.Encode(Message{key, b})
-}
-
-func (n *Node) newPeer(k ed25519.PublicKey, conn net.Conn) *Peer {
-	return &Peer{
-		PublicKey: ed25519.PublicKey(k[:]),
-		Node:      n,
-		Encoder:   gob.NewEncoder(conn),
-		Closer:    conn,
+	stream, err := p.OpenStream()
+	if err != nil {
+		return err
 	}
+	defer stream.Close()
+
+	_, err = io.Copy(stream, io.MultiReader(bytes.NewReader(key), r))
+	return err
 }
 
 func (n *Node) Close() error { return n.Leafset.Close() }
