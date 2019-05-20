@@ -46,11 +46,15 @@ func main() {
 		log.Fatal(err)
 	}
 	
+	g, ctx := errgroup.WithContext(context.Background())
+	
 	// Connect to another node -- bootstrap 
-	go n.DialAndAccept("localhost:1234")
+	g.Go(func() error { return n.DialAndAccept(ctx, "localhost:1234") })
 	
 	// Listen for other nodes
-	if err := n.ListenAndServe(context.Background(), "localhost"); err != nil {
+	g.Go(func() error { return n.ListenAndServe(ctx, "localhost") })
+	
+	if err := g.Wait(); err != nil {
 		log.Fatal(err)
 	}
 }

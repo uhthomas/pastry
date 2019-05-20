@@ -79,8 +79,8 @@ func (n *Node) Serve(l quic.Listener) error {
 	}
 }
 
-func (n *Node) DialAndAccept(address string) error {
-	conn, err := quic.DialAddrContext(context.Background(), address, nil, nil)
+func (n *Node) DialAndAccept(ctx context.Context, address string) error {
+	conn, err := quic.DialAddrContext(ctx, address, nil, nil)
 	if err != nil {
 		return err
 	}
