@@ -121,21 +121,22 @@ func (n *Node) Accept(conn quic.Session, stream quic.Stream) (err error) {
 		return err
 	}
 
-	// read their public key
-	var key [ed25519.PublicKeySize]byte
-	if _, err := io.ReadFull(stream, key[:]); err != nil {
-		return err
-	}
+	var (
+		key [ed25519.PublicKeySize]byte
+		sig [ed25519.SignatureSize]byte
+	)
 
-	// read their ephemeral public key
-	if _, err := io.ReadFull(stream, pub[:]); err != nil {
-		return err
-	}
-
-	// read the signature of their ephemeral public key
-	var sig [ed25519.SignatureSize]byte
-	if _, err := io.ReadFull(stream, sig[:]); err != nil {
-		return err
+	for _, b := range [][]byte{
+		// their public key
+		key[:],
+		// their ephemeral public key
+		pub[:],
+		// the signature of their ephemeral public key
+		sig[:],
+	} {
+		if _, err := io.ReadFull(stream, b); err != nil {
+			return err
+		}
 	}
 
 	if !ed25519.Verify(
