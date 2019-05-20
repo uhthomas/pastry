@@ -11,6 +11,7 @@ import (
 
 	"github.com/lucas-clemente/quic-go"
 	"golang.org/x/crypto/ed25519"
+	"golang.org/x/crypto/nacl/box"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -93,6 +94,9 @@ func (n *Node) DialAndAccept(ctx context.Context, address string) error {
 
 // Accept takes the session and a pre-opened stream since we need to do the initial handshake. The only way to do that
 // agnostically is to have a pre-opened stream.
+//
+// <-> [public key + challenge]
+// <-> [signature]
 func (n *Node) Accept(conn quic.Session, stream quic.Stream) (err error) {
 	defer func() {
 		if err != nil {
@@ -101,56 +105,58 @@ func (n *Node) Accept(conn quic.Session, stream quic.Stream) (err error) {
 	}()
 	defer stream.Close()
 
-	// send our public key
+	pub, prv, err := box.GenerateKey(rand.Reader)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(stream, io.MultiReader(
+		// Our public key
+		bytes.NewReader(n.PublicKey()),
+		// Our ephemeral public key
+		bytes.NewReader(pub[:]),
+		// The signature of our ephemeral public key
+		bytes.NewReader(ed25519.Sign(n.key, pub[:])),
+	)); err != nil {
+		return err
+	}
+
 	// read their public key
-	n.logger.Println("writing public key")
-	if _, err := stream.Write(n.PublicKey()); err != nil {
-		return err
-	}
-	n.logger.Println("receiving public key")
-	var k [ed25519.PublicKeySize]byte
-	if _, err := io.ReadFull(stream, k[:]); err != nil {
+	var key [ed25519.PublicKeySize]byte
+	if _, err := io.ReadFull(stream, key[:]); err != nil {
 		return err
 	}
 
-	// send them a challenge
-	// read their challenge
-	// a - our challenge
-	// b - their challenge - then after we've signed it, their signature
-	n.logger.Println("generating challenge")
-	var a, b [ed25519.SignatureSize]byte
-	if _, err := io.ReadFull(rand.Reader, a[:]); err != nil {
-		return err
-	}
-	n.logger.Println("writing challenge")
-	if _, err := stream.Write(a[:]); err != nil {
-		return err
-	}
-	n.logger.Println("receiving challenge")
-	if _, err := io.ReadFull(stream, b[:]); err != nil {
+	// read their ephemeral public key
+	if _, err := io.ReadFull(stream, pub[:]); err != nil {
 		return err
 	}
 
-	// send our signature
-	// read their signature
-	n.logger.Println("sending our signature")
-	if _, err := stream.Write(ed25519.Sign(n.key, b[:])); err != nil {
-		return err
-	}
-	n.logger.Println("reading their signature")
-	if _, err := io.ReadFull(stream, b[:]); err != nil {
+	// read the signature of their ephemeral public key
+	var sig [ed25519.SignatureSize]byte
+	if _, err := io.ReadFull(stream, sig[:]); err != nil {
 		return err
 	}
 
-	// verify
-	n.logger.Println("verifying signature")
-	if !ed25519.Verify(k[:], a[:], b[:]) {
+	if !ed25519.Verify(
+		// their public key
+		key[:],
+		// their ephemeral public key
+		pub[:],
+		// the signature of their ephemeral public key
+		sig[:],
+	) {
 		return errors.New("invalid signature")
 	}
-	n.logger.Printf(
-		"signature %s verified! their public key is: %s\n",
-		base64.RawURLEncoding.EncodeToString(b[:]),
-		base64.RawURLEncoding.EncodeToString(k[:]),
+
+	var sharedKey [32]byte
+	box.Precompute(
+		// new shared ephemeral key
+		&sharedKey,
+		// their ephemeral public key
+		pub,
+		// our ephemeral private key
+		prv,
 	)
 
 	if ok := n.Leafset.Insert(k[:], conn); !ok {
