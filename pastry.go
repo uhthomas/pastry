@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 
@@ -14,6 +15,19 @@ import (
 	"golang.org/x/crypto/nacl/box"
 	"golang.org/x/sync/errgroup"
 )
+
+type InvalidSignatureError struct {
+	PublicKey *[32]byte
+	Signature [ed25519.SignatureSize]byte
+}
+
+func (err InvalidSignatureError) Error() string {
+	return fmt.Sprintf(
+		"invalid signature %s for public key %s",
+		base64.RawURLEncoding.EncodeToString(err.Signature[:]),
+		base64.RawURLEncoding.EncodeToString(err.PublicKey[:]),
+	)
+}
 
 type Node struct {
 	Leafset   LeafSet
@@ -44,7 +58,9 @@ func (n *Node) Apply(opts ...Option) error {
 	return nil
 }
 
-func (n *Node) PublicKey() ed25519.PublicKey { return n.key.Public().(ed25519.PublicKey) }
+func (n *Node) PublicKey() ed25519.PublicKey {
+	return n.key.Public().(ed25519.PublicKey)
+}
 
 func (n *Node) ListenAndServe(ctx context.Context, address string) error {
 	l, err := quic.ListenAddr(address, nil, nil)
@@ -92,11 +108,15 @@ func (n *Node) DialAndAccept(ctx context.Context, address string) error {
 	return n.Accept(conn, stream)
 }
 
-// Accept takes the session and a pre-opened stream since we need to do the initial handshake. The only way to do that
-// agnostically is to have a pre-opened stream.
+// Accept takes the session and a pre-opened stream since we need to do the
+// initial handshake. The only way to do that agnostically is to have a
+// pre-opened stream.
 //
-// <-> [public key + challenge]
-// <-> [signature]
+// <-> [
+//      public key,
+//      ephemeral key public key,
+//      signature(private key, ephemeral public key),
+// ]
 func (n *Node) Accept(conn quic.Session, stream quic.Stream) (err error) {
 	defer func() {
 		if err != nil {
@@ -147,7 +167,10 @@ func (n *Node) Accept(conn quic.Session, stream quic.Stream) (err error) {
 		// the signature of their ephemeral public key
 		sig[:],
 	) {
-		return errors.New("invalid signature")
+		return InvalidSignatureError{
+			PublicKey: pub,
+			Signature: sig,
+		}
 	}
 
 	var sharedKey [32]byte
