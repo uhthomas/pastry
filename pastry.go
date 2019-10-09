@@ -111,12 +111,6 @@ func (n *Node) DialAndAccept(ctx context.Context, address string) error {
 // Accept takes the session and a pre-opened stream since we need to do the
 // initial handshake. The only way to do that agnostically is to have a
 // pre-opened stream.
-//
-// <-> [
-//      public key,
-//      ephemeral key public key,
-//      signature(private key, ephemeral public key),
-// ]
 func (n *Node) Accept(conn quic.Session, stream quic.Stream) (err error) {
 	defer func() {
 		if err != nil {
@@ -125,63 +119,12 @@ func (n *Node) Accept(conn quic.Session, stream quic.Stream) (err error) {
 	}()
 	defer stream.Close()
 
-	pub, prv, err := box.GenerateKey(rand.Reader)
+	sharedKey, err := n.Handshake(stream, stream, rand.Reader)
 	if err != nil {
 		return err
 	}
 
-	if _, err := io.Copy(stream, io.MultiReader(
-		// Our public key
-		bytes.NewReader(n.PublicKey()),
-		// Our ephemeral public key
-		bytes.NewReader(pub[:]),
-		// The signature of our ephemeral public key
-		bytes.NewReader(ed25519.Sign(n.key, pub[:])),
-	)); err != nil {
-		return err
-	}
-
-	var (
-		key [ed25519.PublicKeySize]byte
-		sig [ed25519.SignatureSize]byte
-	)
-
-	for _, b := range [][]byte{
-		// their public key
-		key[:],
-		// their ephemeral public key
-		pub[:],
-		// the signature of their ephemeral public key
-		sig[:],
-	} {
-		if _, err := io.ReadFull(stream, b); err != nil {
-			return err
-		}
-	}
-
-	if !ed25519.Verify(
-		// their public key
-		key[:],
-		// their ephemeral public key
-		pub[:],
-		// the signature of their ephemeral public key
-		sig[:],
-	) {
-		return InvalidSignatureError{
-			PublicKey: pub,
-			Signature: sig,
-		}
-	}
-
-	var sharedKey [32]byte
-	box.Precompute(
-		// new shared ephemeral key
-		&sharedKey,
-		// their ephemeral public key
-		pub,
-		// our ephemeral private key
-		prv,
-	)
+	_ = sharedKey
 
 	if ok := n.Leafset.Insert(k[:], conn); !ok {
 		return errors.New("peer either already exists or does not fit in leafset")
@@ -208,6 +151,83 @@ func (n *Node) Accept(conn quic.Session, stream quic.Stream) (err error) {
 	}()
 
 	return nil
+}
+
+// Handshake will generate an ephemeral key-pair and will then send our
+// handshake to w. We will then read the peer's handshake from r, verifying the
+// signature and then generating the shared secret.
+//
+// The handshake looks as follows:
+// <-> [
+//      public key,
+//      ephemeral key public key,
+//      signature(private key, ephemeral public key),
+// ]
+func (n *Node) Handshake(
+	w io.Writer,
+	r, rand io.Reader,
+) (
+	sharedKey [32]byte,
+	err error,
+) {
+	pub, prv, err := box.GenerateKey(rand)
+	if err != nil {
+		return sharedKey, err
+	}
+
+	if _, err := io.Copy(w, io.MultiReader(
+		// Our public key
+		bytes.NewReader(n.PublicKey()),
+		// Our ephemeral public key
+		bytes.NewReader(pub[:]),
+		// The signature of our ephemeral public key
+		bytes.NewReader(ed25519.Sign(n.key, pub[:])),
+	)); err != nil {
+		return sharedKey, err
+	}
+
+	var (
+		key [ed25519.PublicKeySize]byte
+		sig [ed25519.SignatureSize]byte
+	)
+
+	for _, b := range [][]byte{
+		// their public key
+		key[:],
+		// their ephemeral public key
+		pub[:],
+		// the signature of their ephemeral public key
+		sig[:],
+	} {
+		if _, err := io.ReadFull(r, b); err != nil {
+			return sharedKey, err
+		}
+	}
+
+	if !ed25519.Verify(
+		// their public key
+		key[:],
+		// their ephemeral public key
+		pub[:],
+		// the signature of their ephemeral public key
+		sig[:],
+	) {
+		return sharedKey, InvalidSignatureError{
+			PublicKey: pub,
+			Signature: sig,
+		}
+	}
+
+	box.Precompute(
+		// new shared ephemeral key
+		&sharedKey,
+		// their ephemeral public key
+		pub,
+		// our ephemeral private key
+		prv,
+	)
+
+	return sharedKey, nil
 }
 
 // Send data to the node closest to the key.
