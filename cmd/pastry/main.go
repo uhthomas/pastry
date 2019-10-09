@@ -15,7 +15,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/uhthomas/pastry/pkg/pastry"
+	"github.com/uhthomas/pastry"
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/crypto/ed25519"
 	"golang.org/x/sync/errgroup"

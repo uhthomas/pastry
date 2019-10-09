@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/uhthomas/pastry/pkg/pastry"
+	"github.com/uhthomas/pastry"
 	"golang.org/x/crypto/ed25519"
 )
 
