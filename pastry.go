@@ -3,6 +3,7 @@ package pastry
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -11,7 +12,6 @@ import (
 	"log"
 
 	"github.com/lucas-clemente/quic-go"
-	"golang.org/x/crypto/ed25519"
 	"golang.org/x/crypto/nacl/box"
 	"golang.org/x/sync/errgroup"
 )
@@ -119,20 +119,26 @@ func (n *Node) Accept(conn quic.Session, stream quic.Stream) (err error) {
 	}()
 	defer stream.Close()
 
-	sharedKey, err := n.Handshake(stream, stream, rand.Reader)
+	publicKey, sharedKey, err := n.Handshake(stream, stream, rand.Reader)
 	if err != nil {
 		return err
 	}
 
 	_ = sharedKey
 
-	if ok := n.Leafset.Insert(k[:], conn); !ok {
+	p := &Peer{
+		PublicKey: publicKey[:],
+		Node:      n,
+		Session:   conn,
+	}
+
+	if ok := n.Leafset.Insert(p); !ok {
 		return errors.New("peer either already exists or does not fit in leafset")
 	}
 
 	go func() {
 		defer conn.Close()
-		defer n.Leafset.Remove(k[:])
+		defer n.Leafset.Remove(p)
 
 		for {
 			stream, err := conn.AcceptStream()
@@ -159,60 +165,61 @@ func (n *Node) Accept(conn quic.Session, stream quic.Stream) (err error) {
 //
 // The handshake looks as follows:
 // <-> [
-//      public key,
-//      ephemeral key public key,
-//      signature(private key, ephemeral public key),
+//      [32] public key,
+//      [32] ephemeral key public key,
+//      (64) signature(private key, ephemeral public key),
 // ]
 func (n *Node) Handshake(
 	w io.Writer,
 	r, rand io.Reader,
 ) (
+	publicKey [ed25519.PublicKeySize]byte,
 	sharedKey [32]byte,
 	err error,
 ) {
 	pub, prv, err := box.GenerateKey(rand)
 	if err != nil {
-		return sharedKey, err
+		return publicKey, sharedKey, err
 	}
 
-	if _, err := io.Copy(w, io.MultiReader(
-		// Our public key
-		bytes.NewReader(n.PublicKey()),
-		// Our ephemeral public key
-		bytes.NewReader(pub[:]),
-		// The signature of our ephemeral public key
-		bytes.NewReader(ed25519.Sign(n.key, pub[:])),
-	)); err != nil {
-		return sharedKey, err
+	b := make([]byte, ed25519.PublicKeySize+32+ed25519.SignatureSize)
+
+	// Our public key
+	nc := copy(b, n.PublicKey())
+
+	// Our ephemeral public key
+	nc += copy(b[nc:], pub[:])
+
+	// The signature of our ephemeral public key
+	copy(b[nc:], ed25519.Sign(n.key, pub[:]))
+
+	if _, err := w.Write(b); err != nil {
+		return publicKey, sharedKey, err
 	}
 
-	var (
-		key [ed25519.PublicKeySize]byte
-		sig [ed25519.SignatureSize]byte
-	)
-
-	for _, b := range [][]byte{
-		// their public key
-		key[:],
-		// their ephemeral public key
-		pub[:],
-		// the signature of their ephemeral public key
-		sig[:],
-	} {
-		if _, err := io.ReadFull(r, b); err != nil {
-			return sharedKey, err
-		}
+	if _, err := io.ReadFull(r, b); err != nil {
+		return publicKey, sharedKey, err
 	}
+
+	// their public key
+	nc = copy(publicKey[:], b)
+
+	// their ephemeral public key
+	nc += copy(pub[:], b[nc:])
+
+	// the signature of their ephemeral public key
+	var sig [ed25519.SignatureSize]byte
+	copy(sig[:], b[nc:])
 
 	if !ed25519.Verify(
 		// their public key
-		key[:],
+		publicKey[:],
 		// their ephemeral public key
 		pub[:],
 		// the signature of their ephemeral public key
 		sig[:],
 	) {
-		return sharedKey, InvalidSignatureError{
+		return publicKey, sharedKey, InvalidSignatureError{
 			PublicKey: pub,
 			Signature: sig,
 		}
@@ -227,7 +234,7 @@ func (n *Node) Handshake(
 		prv,
 	)
 
-	return sharedKey, nil
+	return publicKey, sharedKey, nil
 }
 
 // Send data to the node closest to the key.

@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
 	"flag"
 	"io"
 	"log"
-	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -17,7 +17,6 @@ import (
 
 	"github.com/uhthomas/pastry"
 	"golang.org/x/crypto/blake2b"
-	"golang.org/x/crypto/ed25519"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -97,11 +96,7 @@ func main() {
 		log.Printf("Connecting to %d nodes\n", len(s))
 		for _, addr := range s {
 			log.Printf("Connecting to %s\n", addr)
-			conn, err := net.Dial("tcp", addr)
-			if err != nil {
-				log.Fatal(err)
-			}
-			go n.Accept(conn)
+			go n.DialAndAccept(ctx, addr)
 		}
 	}
 

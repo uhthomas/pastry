@@ -2,13 +2,16 @@ package pastry_test
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"encoding/base64"
 	"testing"
 
 	"github.com/uhthomas/pastry"
-	"golang.org/x/crypto/ed25519"
 )
 
 func TestLeafSet_Closest(t *testing.T) {
+	b64u := base64.RawURLEncoding.EncodeToString
+
 	n, err := pastry.New(pastry.Seed(make([]byte, ed25519.SeedSize)))
 	if err != nil {
 		t.Fatal(err)
@@ -35,8 +38,12 @@ func TestLeafSet_Closest(t *testing.T) {
 	t.Run("should return closest peer on the right", func(t *testing.T) {
 		b := make([]byte, ed25519.PublicKeySize)
 		b[0] = 4
-		if p := l.Closest(b); p == nil || !bytes.Equal(p.PublicKey, right) {
-			t.Fatal("p is either nil or incorrect")
+		p := l.Closest(b)
+		if p == nil {
+			t.Fatal("p is nil")
+		}
+		if !bytes.Equal(p.PublicKey, right) {
+			t.Fatalf("got %s, want %s", b64u(p.PublicKey), b64u(right))
 		}
 	})
 }

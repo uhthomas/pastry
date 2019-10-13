@@ -1,13 +1,11 @@
 package pastry
 
-//
 // import (
+// 	"crypto/ed25519"
 // 	"encoding/gob"
 // 	"io"
 // 	"net"
 // 	"sync"
-//
-// 	"golang.org/x/crypto/ed25519"
 // )
 //
 // type Peer interface {

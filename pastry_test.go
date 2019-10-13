@@ -29,7 +29,7 @@ func TestNode_Handshake(t *testing.T) {
 
 		const someError testerror = "some-error"
 
-		_, err = n.Handshake(nil, nil, ErrorReader{err: someError})
+		_, _, err = n.Handshake(nil, nil, ErrorReader{err: someError})
 		require.Error(t, err)
 		assert.Equal(t, someError, err)
 	})
@@ -40,7 +40,7 @@ func TestNode_Handshake(t *testing.T) {
 
 		const someError testerror = "some-error"
 
-		_, err = n.Handshake(
+		_, _, err = n.Handshake(
 			ErrorWriter{err: someError},
 			nil,
 			rand.Reader,
@@ -55,7 +55,7 @@ func TestNode_Handshake(t *testing.T) {
 
 		const someError testerror = "some-error"
 
-		_, err = n.Handshake(
+		_, _, err = n.Handshake(
 			ioutil.Discard,
 			ErrorReader{err: someError},
 			rand.Reader,

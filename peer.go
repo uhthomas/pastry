@@ -1,8 +1,9 @@
 package pastry
 
 import (
+	"crypto/ed25519"
+
 	"github.com/lucas-clemente/quic-go"
-	"golang.org/x/crypto/ed25519"
 )
 
 type Peer struct {

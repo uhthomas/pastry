@@ -1,14 +1,13 @@
 package pastry
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
 	"io"
 	"io/ioutil"
 	"log"
 	"os"
-
-	"golang.org/x/crypto/ed25519"
 )
 
 type Option func(*Node) error

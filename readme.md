@@ -1,4 +1,4 @@
-# Pastry [![GoDoc](https://godoc.org/github.com/uhthomas/pastry/pkg/pastry?status.svg)](https://godoc.org/github.com/uhthomas/pastry/pkg/pastry)
+# Pastry [![GoDoc](https://godoc.org/github.com/uhthomas/pastry?status.svg)](https://godoc.org/github.com/uhthomas/pastry)
 
 The [Pastry DHT](https://www.freepastry.org/) written in Go. Written specifically for [Pastry Search](https://github.com/uhthomas/pastrysearch).
 
@@ -11,12 +11,12 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"io"
 	"log"
 	
-	"github.com/uhthomas/pastry/pkg/pastry"
-	"golang.org/x/crypto/ed25519"
+	"github.com/uhthomas/pastry"
 	"golang.org/x/sync/errgroup"
 )
 
