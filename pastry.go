@@ -91,7 +91,9 @@ func (n *Node) Serve(l quic.Listener) error {
 			if err != nil {
 				return
 			}
-			n.Accept(conn, stream)
+			if err := n.Accept(conn, stream); err != nil {
+				n.logger.Printf("couldn't accept conn: %v\n", err)
+			}
 		}()
 	}
 }
@@ -167,7 +169,7 @@ func (n *Node) Accept(conn quic.Session, stream quic.Stream) (err error) {
 // <-> [
 //      [32] public key,
 //      [32] ephemeral key public key,
-//      (64) signature(private key, ephemeral public key),
+//      [64] signature(private key, ephemeral public key),
 // ]
 func (n *Node) Handshake(
 	w io.Writer,
@@ -182,10 +184,10 @@ func (n *Node) Handshake(
 		return publicKey, sharedKey, err
 	}
 
-	b := make([]byte, ed25519.PublicKeySize+32+ed25519.SignatureSize)
+	var b [ed25519.PublicKeySize + 32 + ed25519.SignatureSize]byte
 
 	// Our public key
-	nc := copy(b, n.PublicKey())
+	nc := copy(b[:], n.PublicKey())
 
 	// Our ephemeral public key
 	nc += copy(b[nc:], pub[:])
@@ -193,16 +195,16 @@ func (n *Node) Handshake(
 	// The signature of our ephemeral public key
 	copy(b[nc:], ed25519.Sign(n.key, pub[:]))
 
-	if _, err := w.Write(b); err != nil {
+	if _, err := w.Write(b[:]); err != nil {
 		return publicKey, sharedKey, err
 	}
 
-	if _, err := io.ReadFull(r, b); err != nil {
+	if _, err := io.ReadFull(r, b[:]); err != nil {
 		return publicKey, sharedKey, err
 	}
 
 	// their public key
-	nc = copy(publicKey[:], b)
+	nc = copy(publicKey[:], b[:])
 
 	// their ephemeral public key
 	nc += copy(pub[:], b[nc:])

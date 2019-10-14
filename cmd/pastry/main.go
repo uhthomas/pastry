@@ -96,7 +96,9 @@ func main() {
 		log.Printf("Connecting to %d nodes\n", len(s))
 		for _, addr := range s {
 			log.Printf("Connecting to %s\n", addr)
-			go n.DialAndAccept(ctx, addr)
+			if err := n.DialAndAccept(ctx, addr); err != nil {
+				log.Fatal(err)
+			}
 		}
 	}
 
