@@ -1,30 +1,40 @@
 package pastry
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/base64"
-	"io"
 	"io/ioutil"
 	"log"
 	"os"
+
+	ci "github.com/libp2p/go-libp2p-core/crypto"
+	"github.com/libp2p/go-libp2p-core/transport"
 )
 
 type Option func(*Node) error
 
-func Seed(seed []byte) Option {
+func Transport(tpt transport.Transport) Option {
 	return func(n *Node) error {
-		n.key = ed25519.NewKeyFromSeed(seed)
+		n.transport = tpt
 		return nil
 	}
 }
 
-func RandomSeed(n *Node) error {
-	var seed [ed25519.SeedSize]byte
-	if _, err := io.ReadFull(rand.Reader, seed[:]); err != nil {
-		return err
+func Key(pk ci.PrivKey) Option {
+	return func(n *Node) error {
+		n.key = pk
+		return nil
 	}
-	return Seed(seed[:])(n)
+}
+
+func RandomKey() Option {
+	return func(n *Node) error {
+		pk, _, err := ci.GenerateKeyPair(ci.Ed25519, 256)
+		if err != nil {
+			return err
+		}
+		n.key = pk
+		return nil
+	}
 }
 
 func Forward(f Forwarder) Option {
@@ -53,7 +63,11 @@ func DiscardLogger(n *Node) error {
 }
 
 func DebugLogger(n *Node) error {
+	keyBytes, err := n.PublicKey().Bytes()
+	if err != nil {
+		return err
+	}
 	return Logger(
-		log.New(os.Stdout, base64.RawURLEncoding.EncodeToString(n.PublicKey())+" ", log.Ldate|log.Ltime),
+		log.New(os.Stdout, base64.RawURLEncoding.EncodeToString(keyBytes)+" ", log.Ldate|log.Ltime),
 	)(n)
 }
