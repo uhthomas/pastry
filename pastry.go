@@ -11,7 +11,10 @@ import (
 	"io"
 	"log"
 
-	"github.com/lucas-clemente/quic-go"
+	"github.com/libp2p/go-libp2p-core/mux"
+	peer "github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-core/transport"
+	"github.com/multiformats/go-multiaddr"
 	"golang.org/x/crypto/nacl/box"
 	"golang.org/x/sync/errgroup"
 )
@@ -35,6 +38,7 @@ type Node struct {
 	forwarder Forwarder
 	deliverer Deliverer
 	logger    *log.Logger
+	transport transport.Transport
 }
 
 func New(opts ...Option) (*Node, error) {
@@ -62,8 +66,8 @@ func (n *Node) PublicKey() ed25519.PublicKey {
 	return n.key.Public().(ed25519.PublicKey)
 }
 
-func (n *Node) ListenAndServe(ctx context.Context, address string) error {
-	l, err := quic.ListenAddr(address, nil, nil)
+func (n *Node) ListenAndServe(ctx context.Context, address multiaddr.Multiaddr) error {
+	l, err := n.transport.Listen(address)
 	if err != nil {
 		return err
 	}
@@ -79,7 +83,7 @@ func (n *Node) ListenAndServe(ctx context.Context, address string) error {
 	return g.Wait()
 }
 
-func (n *Node) Serve(l quic.Listener) error {
+func (n *Node) Serve(l transport.Listener) error {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -98,8 +102,8 @@ func (n *Node) Serve(l quic.Listener) error {
 	}
 }
 
-func (n *Node) DialAndAccept(ctx context.Context, address string) error {
-	conn, err := quic.DialAddrContext(ctx, address, nil, nil)
+func (n *Node) DialAndAccept(ctx context.Context, address multiaddr.Multiaddr, pid peer.ID) error {
+	conn, err := n.transport.Dial(ctx, address, pid)
 	if err != nil {
 		return err
 	}
@@ -113,7 +117,7 @@ func (n *Node) DialAndAccept(ctx context.Context, address string) error {
 // Accept takes the session and a pre-opened stream since we need to do the
 // initial handshake. The only way to do that agnostically is to have a
 // pre-opened stream.
-func (n *Node) Accept(conn quic.Session, stream quic.Stream) (err error) {
+func (n *Node) Accept(conn mux.MuxedConn, stream mux.MuxedStream) (err error) {
 	defer func() {
 		if err != nil {
 			conn.Close()
@@ -131,7 +135,7 @@ func (n *Node) Accept(conn quic.Session, stream quic.Stream) (err error) {
 	p := &Peer{
 		PublicKey: publicKey[:],
 		Node:      n,
-		Session:   conn,
+		MuxedConn: conn,
 	}
 
 	if ok := n.Leafset.Insert(p); !ok {
