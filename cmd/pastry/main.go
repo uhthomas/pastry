@@ -69,7 +69,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 
 	g, ctx := errgroup.WithContext(ctx)

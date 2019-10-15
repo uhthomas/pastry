@@ -12,11 +12,11 @@ import (
 	"log"
 	"strings"
 
+	ci "github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/mux"
-	"github.com/libp2p/go-libp2p-core/transport"
 	peer "github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-core/transport"
 	"github.com/multiformats/go-multiaddr"
-	"golang.org/x/crypto/nacl/box"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -35,7 +35,7 @@ func (err InvalidSignatureError) Error() string {
 
 type Node struct {
 	Leafset   LeafSet
-	key       ed25519.PrivateKey
+	key       ci.PrivKey
 	forwarder Forwarder
 	deliverer Deliverer
 	logger    *log.Logger
@@ -46,7 +46,7 @@ func New(opts ...Option) (*Node, error) {
 	n := new(Node)
 	if err := n.Apply(append([]Option{
 		DiscardLogger,
-		RandomSeed,
+		RandomKey(),
 	}, opts...)...); err != nil {
 		return nil, err
 	}
@@ -63,8 +63,8 @@ func (n *Node) Apply(opts ...Option) error {
 	return nil
 }
 
-func (n *Node) PublicKey() ed25519.PublicKey {
-	return n.key.Public().(ed25519.PublicKey)
+func (n *Node) PublicKey() ci.PubKey {
+	return n.key.GetPublic()
 }
 
 func (n *Node) ListenAndServe(ctx context.Context, address multiaddr.Multiaddr) error {
@@ -170,84 +170,6 @@ func (n *Node) Accept(conn mux.MuxedConn, stream mux.MuxedStream) (err error) {
 	return nil
 }
 
-// Handshake will generate an ephemeral key-pair and will then send our
-// handshake to w. We will then read the peer's handshake from r, verifying the
-// signature and then generating the shared secret.
-//
-// The handshake looks as follows:
-// <-> [
-//      [32] public key,
-//      [32] ephemeral key public key,
-//      [64] signature(private key, ephemeral public key),
-// ]
-func (n *Node) Handshake(
-	w io.Writer,
-	r, rand io.Reader,
-) (
-	publicKey [ed25519.PublicKeySize]byte,
-	sharedKey [32]byte,
-	err error,
-) {
-	pub, prv, err := box.GenerateKey(rand)
-	if err != nil {
-		return publicKey, sharedKey, err
-	}
-
-	var b [ed25519.PublicKeySize + 32 + ed25519.SignatureSize]byte
-
-	// Our public key
-	nc := copy(b[:], n.PublicKey())
-
-	// Our ephemeral public key
-	nc += copy(b[nc:], pub[:])
-
-	// The signature of our ephemeral public key
-	copy(b[nc:], ed25519.Sign(n.key, pub[:]))
-
-	if _, err := w.Write(b[:]); err != nil {
-		return publicKey, sharedKey, err
-	}
-
-	if _, err := io.ReadFull(r, b[:]); err != nil {
-		return publicKey, sharedKey, err
-	}
-
-	// their public key
-	nc = copy(publicKey[:], b[:])
-
-	// their ephemeral public key
-	nc += copy(pub[:], b[nc:])
-
-	// the signature of their ephemeral public key
-	var sig [ed25519.SignatureSize]byte
-	copy(sig[:], b[nc:])
-
-	if !ed25519.Verify(
-		// their public key
-		publicKey[:],
-		// their ephemeral public key
-		pub[:],
-		// the signature of their ephemeral public key
-		sig[:],
-	) {
-		return publicKey, sharedKey, InvalidSignatureError{
-			PublicKey: pub,
-			Signature: sig,
-		}
-	}
-
-	box.Precompute(
-		// new shared ephemeral key
-		&sharedKey,
-		// their ephemeral public key
-		pub,
-		// our ephemeral private key
-		prv,
-	)
-
-	return publicKey, sharedKey, nil
-}
-
 // Send data to the node closest to the key.
 func (n *Node) Route(ctx context.Context, key []byte, r io.Reader) error {
 	n.logger.Printf("Routing %s\n", base64.RawURLEncoding.EncodeToString(key))
@@ -263,7 +185,11 @@ func (n *Node) Route(ctx context.Context, key []byte, r io.Reader) error {
 
 	n.logger.Printf("Forwarding %s\n", base64.RawURLEncoding.EncodeToString(key))
 	if n.forwarder != nil {
-		if err := n.forwarder.Forward(ctx, p.PublicKey, key, r); err != nil {
+		kBytes, err := p.PublicKey.Bytes()
+		if err != nil {
+			return err
+		}
+		if err := n.forwarder.Forward(ctx, kBytes, key, r); err != nil {
 			return err
 		}
 	}

@@ -19,7 +19,11 @@ func NewLeafSet(n *Node) LeafSet { return LeafSet{parent: n} }
 
 // Closest will return the closest peer to the given key. If the key is equal to the parent then nil is returned.
 func (l *LeafSet) Closest(k []byte) *Peer {
-	if c := bytes.Compare(k, l.parent.PublicKey()); c < 0 {
+	keyBytes, err := l.parent.PublicKey().Bytes()
+	if err != nil {
+		return nil
+	}
+	if c := bytes.Compare(k, keyBytes); c < 0 {
 		return l.closest(k, l.left)
 	} else if c > 0 {
 		return l.closest(k, l.right)
@@ -31,7 +35,13 @@ func (l *LeafSet) closest(k []byte, s []*Peer) *Peer {
 	if s == nil {
 		return nil
 	}
-	i := sort.Search(len(s), func(i int) bool { return bytes.Compare(s[i].PublicKey, k) >= 0 })
+	i := sort.Search(len(s), func(i int) bool {
+		keyBytes, err := s[i].PublicKey.Bytes()
+		if err != nil {
+			return false
+		}
+		return bytes.Compare(keyBytes, k) >= 0
+	})
 	if i >= len(s) {
 		i = len(s) - 1
 	}
@@ -39,7 +49,15 @@ func (l *LeafSet) closest(k []byte, s []*Peer) *Peer {
 }
 
 func (l *LeafSet) Insert(p *Peer) (ok bool) {
-	if c := bytes.Compare(p.PublicKey, l.parent.PublicKey()); c < 0 {
+	pKeyBytes, err := p.PublicKey.Bytes()
+	if err != nil {
+		return ok
+	}
+	lKeybytes, err := l.parent.PublicKey().Bytes()
+	if err != nil {
+		return ok
+	}
+	if c := bytes.Compare(pKeyBytes, lKeybytes); c < 0 {
 		l.left, ok = l.insert(p, l.left)
 	} else if c > 0 {
 		l.right, ok = l.insert(p, l.right)
