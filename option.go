@@ -8,9 +8,18 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+
+	"github.com/libp2p/go-libp2p-core/transport"
 )
 
 type Option func(*Node) error
+
+func Transport(tpt transport.Transport) Option {
+	return func(n *Node) error {
+		n.transport = tpt
+		return nil
+	}
+}
 
 func Seed(seed []byte) Option {
 	return func(n *Node) error {
