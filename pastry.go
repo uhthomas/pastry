@@ -10,10 +10,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 
 	"github.com/libp2p/go-libp2p-core/mux"
-	peer "github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/transport"
+	peer "github.com/libp2p/go-libp2p-core/peer"
 	"github.com/multiformats/go-multiaddr"
 	"golang.org/x/crypto/nacl/box"
 	"golang.org/x/sync/errgroup"
@@ -102,8 +103,12 @@ func (n *Node) Serve(l transport.Listener) error {
 	}
 }
 
-func (n *Node) DialAndAccept(ctx context.Context, address multiaddr.Multiaddr, pid peer.ID) error {
-	conn, err := n.transport.Dial(ctx, address, pid)
+func (n *Node) DialAndAccept(ctx context.Context, address multiaddr.Multiaddr) error {
+	// the address needs to include a peerID at the very end like
+	// /ip4/127.0.0.1/tcp/5939/p2p/QmA
+	parts := strings.Split(address.String(), "/")
+	pidPart := parts[len(parts)-1]
+	conn, err := n.transport.Dial(ctx, address, peer.ID(pidPart))
 	if err != nil {
 		return err
 	}
