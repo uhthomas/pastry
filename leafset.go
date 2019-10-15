@@ -66,11 +66,29 @@ func (l *LeafSet) Insert(p *Peer) (ok bool) {
 }
 
 func (l *LeafSet) insert(p *Peer, s []*Peer) ([]*Peer, bool) {
-	i := sort.Search(len(s), func(i int) bool { return bytes.Compare(s[i].PublicKey, p.PublicKey) >= 0 })
+	i := sort.Search(len(s), func(i int) bool {
+		pkbytes, err := p.PublicKey.Bytes()
+		if err != nil {
+			return false
+		}
+		skbytes, err := s[i].PublicKey.Bytes()
+		if err != nil {
+			return false
+		}
+		return bytes.Compare(skbytes, pkbytes) >= 0
+	})
 	if i >= leafs {
 		return s, false
 	}
-	if i >= len(s) || !bytes.Equal(s[i].PublicKey, p.PublicKey) {
+	pkbytes, err := p.PublicKey.Bytes()
+	if err != nil {
+		return s, false
+	}
+	skbytes, err := s[i].PublicKey.Bytes()
+	if err != nil {
+		return s, false
+	}
+	if i >= len(s) || !bytes.Equal(skbytes, pkbytes) {
 		s = append(s, nil)
 		copy(s[i+1:], s[i:])
 		s[i] = p
@@ -85,7 +103,15 @@ func (l *LeafSet) insert(p *Peer, s []*Peer) ([]*Peer, bool) {
 }
 
 func (l *LeafSet) Remove(p *Peer) (ok bool) {
-	if c := bytes.Compare(p.PublicKey, l.parent.PublicKey()); c < 0 {
+	pKeyBytes, err := p.PublicKey.Bytes()
+	if err != nil {
+		return ok
+	}
+	lKeybytes, err := l.parent.PublicKey().Bytes()
+	if err != nil {
+		return ok
+	}
+	if c := bytes.Compare(pKeyBytes, lKeybytes); c < 0 {
 		l.left, ok = l.remove(p, l.left)
 	} else if c > 0 {
 		l.right, ok = l.remove(p, l.right)
@@ -94,9 +120,26 @@ func (l *LeafSet) Remove(p *Peer) (ok bool) {
 }
 
 func (l *LeafSet) remove(p *Peer, s []*Peer) ([]*Peer, bool) {
-	if i := sort.Search(len(s), func(i int) bool {
-		return bytes.Compare(s[i].PublicKey, p.PublicKey) >= 0
-	}); i < len(s) && bytes.Equal(s[i].PublicKey, p.PublicKey) {
+	i := sort.Search(len(s), func(i int) bool {
+		pKeyBytes, err := p.PublicKey.Bytes()
+		if err != nil {
+			return false
+		}
+		sKeybytes, err := s[i].PublicKey.Bytes()
+		if err != nil {
+			return false
+		}
+		return bytes.Compare(sKeybytes, pKeyBytes) >= 0
+	})
+	pKeyBytes, err := p.PublicKey.Bytes()
+	if err != nil {
+		return s, false
+	}
+	sKeybytes, err := s[i].PublicKey.Bytes()
+	if err != nil {
+		return s, false
+	}
+	if i < len(s) && bytes.Equal(sKeybytes, pKeyBytes) {
 		copy(s[i:], s[i+1:])
 		s[len(s)-1] = nil
 		s = s[:len(s)-1]
